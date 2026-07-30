@@ -9,6 +9,9 @@ rollback path.
 - macOS arm64 builds and launch/CLI smoke tests run on the current Mac.
 - macOS output is unsigned. It is suitable for local testing, not public
   download.
+- Tags matching `v*-test.*` create an unsigned universal DMG as a GitHub
+  prerelease. The workflow installs and launches the app from the DMG before
+  publishing it. These builds are for early feedback only.
 - Windows NSIS x64 and arm64 configuration and CI checks exist. Windows runtime
   behavior has not been verified on a Windows host.
 - ChatGPT / Codex login requires interactive acceptance with an eligible account.

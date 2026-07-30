@@ -1,6 +1,6 @@
 {
   "name": "lane-local-ai-gateway",
-  "version": "0.1.0",
+  "version": "0.1.0-test.1",
   "private": true,
   "description": "A local, multi-provider AI gateway for desktop apps.",
   "author": "Lane contributors",
@@ -27,8 +27,10 @@
     "test:watch": "vitest",
     "validate:packaging": "node scripts/validate-packaging.mjs",
     "package:mac": "npm run build:icon && npm run build && electron-builder --mac dir --arm64",
+    "package:mac:test": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir dmg --universal --publish never",
     "package:win": "npm run build && electron-builder --win nsis --x64",
     "smoke:mac": "node scripts/smoke.mjs",
+    "smoke:dmg:mac": "node scripts/smoke-dmg.mjs",
     "smoke:cli:mac": "node scripts/smoke-cli.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run validate:packaging"
   },
@@ -87,6 +89,7 @@
     "mac": {
       "category": "public.app-category.utilities",
       "icon": "build/icon.icns",
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
       "target": [
         "dir",
         "dmg"
