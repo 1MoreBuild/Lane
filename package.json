@@ -50,7 +50,7 @@
     "@lobehub/icons-static-svg": "^1.94.0",
     "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "26.1.2",
+    "@types/node": "24.13.3",
     "@types/react": "^19.2.8",
     "@types/react-dom": "^19.2.3",
     "concurrently": "10.0.4",
@@ -110,7 +110,7 @@
     }
   },
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=24.0.0 <25"
   },
   "overrides": {
     "brace-expansion": "5.0.8"
