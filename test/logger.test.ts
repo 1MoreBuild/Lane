@@ -24,8 +24,10 @@ describe("persistent activity log", () => {
     const names = await readdir(directory);
     expect(names).toHaveLength(1);
     const path = join(directory, names[0]!);
-    expect((await stat(directory)).mode & 0o777).toBe(0o700);
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect((await stat(directory)).mode & 0o777).toBe(0o700);
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+    }
     expect(await readFile(path, "utf8")).not.toContain("supersecret");
 
     const second = new LaneLogger({ directory, now: () => timestamp + 1_000 });
@@ -79,7 +81,9 @@ describe("persistent activity log", () => {
     });
     await logger.initialize();
     expect(await readdir(directory)).toEqual(["activity-2026-07-30.jsonl"]);
-    expect((await stat(recentPath)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect((await stat(recentPath)).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("rotates the current day when a file reaches its size bound", async () => {

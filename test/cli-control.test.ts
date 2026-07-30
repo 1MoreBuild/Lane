@@ -3,11 +3,16 @@ import { createConnection } from "node:net";
 import { describe, expect, it } from "vitest";
 import {
   CLI_PROTOCOL_VERSION,
+  getCliSocketPath,
   LaneCliControlServer,
   requestCliControl,
   type CliControlResponse,
 } from "../src/main/cli-control.ts";
 import { tempPath } from "./helpers.ts";
+
+async function testSocketPath(): Promise<string> {
+  return getCliSocketPath(await tempPath("user-data"));
+}
 
 async function rawRequest(socketPath: string, value: string): Promise<CliControlResponse> {
   return await new Promise((resolve, reject) => {
@@ -29,7 +34,7 @@ async function rawRequest(socketPath: string, value: string): Promise<CliControl
 
 describe("CLI control socket", () => {
   it("accepts allowlisted commands over a private local socket", async () => {
-    const socketPath = await tempPath("lane.sock");
+    const socketPath = await testSocketPath();
     const commands: string[] = [];
     const server = new LaneCliControlServer(socketPath, {
       execute: async (request) => {
@@ -54,7 +59,7 @@ describe("CLI control socket", () => {
   });
 
   it("rejects unknown commands and protocol versions", async () => {
-    const socketPath = await tempPath("lane.sock");
+    const socketPath = await testSocketPath();
     const server = new LaneCliControlServer(socketPath, {
       execute: async () => {
         throw new Error("must not execute");
