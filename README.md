@@ -1,41 +1,121 @@
-# Lane
+<p align="center">
+  <img src="./build/icon.svg" width="88" height="88" alt="Lane app icon">
+</p>
 
-Lane gives desktop apps one local endpoint for the AI providers you already use.
+<h1 align="center">Lane</h1>
 
-It runs on your Mac, keeps provider credentials in the operating system's secure
-storage, and exposes an OpenAI-compatible API on `127.0.0.1`. Transly and other
-clients talk to Lane; they do not need your OpenAI, Anthropic, OpenRouter, or
-ChatGPT credentials.
+<p align="center">
+  One private local endpoint for the AI providers you already use.
+</p>
 
-Lane is a gateway, not an AI agent. It does not add a hidden system prompt, run
-an agent loop, or execute model tool calls.
+<p align="center">
+  <a href="https://github.com/1MoreBuild/Lane/actions/workflows/ci.yml"><img src="https://github.com/1MoreBuild/Lane/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-111111.svg" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/macOS-arm64%20smoke--tested-111111?logo=apple" alt="macOS arm64 smoke-tested">
+  <img src="https://img.shields.io/badge/Windows-CI%20build%20verified-111111?logo=windows" alt="Windows CI build verified">
+</p>
 
-## Use Lane
+Lane connects desktop apps, scripts, and agents to multiple AI providers through
+one OpenAI-compatible API on your computer. Provider credentials stay in the
+operating system's secure storage. Clients receive only a separate Lane key.
 
-1. Open Lane.
-2. Connect a provider:
-   - **ChatGPT / Codex** opens a browser OAuth flow.
-   - **OpenAI**, **Anthropic**, and **OpenRouter** accept an API key.
-   - **Custom OpenAI-compatible** accepts a base URL and API key.
-3. Pick a default chat model and, when available, an image model.
+Lane is a gateway, not an agent. It does not add hidden instructions, run an
+agent loop, or execute tool calls.
+
+```mermaid
+flowchart LR
+    A["Apps, scripts, and agents"] -->|"OpenAI-compatible API"| L["Lane<br>127.0.0.1"]
+    L --> C["ChatGPT / Codex"]
+    L --> O["OpenAI"]
+    L --> H["Anthropic"]
+    L --> R["OpenRouter"]
+    L --> X["Custom endpoint"]
+```
+
+## Connect once. Use anywhere.
+
+- **One local API.** Switch providers without teaching every client a new
+  protocol.
+- **OAuth and API keys.** Use ChatGPT / Codex sign-in or connect your own
+  provider key.
+- **Chat and images.** Route text requests and supported image-generation
+  models through the same gateway.
+- **Private by default.** Lane is fixed to `127.0.0.1`, requires a random client
+  key, and never exposes upstream credentials to clients.
+- **Built for people and agents.** Control Lane from the desktop, menu bar, or
+  the optional `lane` command.
+
+| Connection | Authentication | Current support |
+| --- | --- | --- |
+| ChatGPT / Codex | Browser OAuth | Chat models and `gpt-image-2` |
+| OpenAI | API key | Models returned by your OpenAI account |
+| Anthropic | API key | Chat models |
+| OpenRouter | API key | Chat and supported image models |
+| Custom endpoint | Base URL and API key | OpenAI-compatible chat and identifiable image models |
+
+## Get started
+
+> Lane is currently a developer preview. The macOS build is unsigned and is
+> intended for local testing, not public distribution.
+
+1. Start Lane with `npm run dev`, or open a locally packaged build.
+2. Choose **Add provider** and connect an account.
+3. Select the default chat model and, when available, an image model.
 4. Start the gateway.
-5. Copy the API base URL and Lane client key into your client app.
+5. Copy the API base URL and Lane client key into your client.
 
-Lane tests API-key connections by loading the provider's model list. This does
-not send a paid model-generation request.
+Check the connection:
 
-In **Settings**, Dock/taskbar visibility and menu bar/system tray visibility are
-independent. You can keep either surface, both, or neither. If both are hidden,
-Lane continues running in the background and can be reopened from Applications.
+```bash
+curl http://127.0.0.1:3210/v1/models \
+  -H "Authorization: Bearer $LANE_CLIENT_KEY"
+```
 
-### Let local agents control Lane
+Send a chat request:
 
-The packaged macOS app can install a small `lane` command. Open **Settings**,
-find **Command line**, and choose **Install…**. macOS asks for administrator
-authorization once so Lane can add the launcher to your command path. Later
-commands do not show an approval prompt.
+```bash
+curl http://127.0.0.1:3210/v1/chat/completions \
+  -H "Authorization: Bearer $LANE_CLIENT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai-codex/gpt-5.6-sol",
+    "messages": [{"role": "user", "content": "Say hello in one sentence."}]
+  }'
+```
 
-For people:
+Generate an image:
+
+```bash
+curl http://127.0.0.1:3210/v1/images/generations \
+  -H "Authorization: Bearer $LANE_CLIENT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai-codex/gpt-image-2",
+    "prompt": "A minimal black-and-white lane icon",
+    "quality": "low",
+    "size": "1024x1024"
+  }'
+```
+
+## OpenAI-compatible API
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Gateway status |
+| `GET` | `/v1/models` | Normalized chat and image models |
+| `POST` | `/v1/responses` | Responses API, streaming or JSON |
+| `POST` | `/v1/chat/completions` | Chat Completions, streaming or JSON |
+| `POST` | `/v1/images/generations` | One-shot image generation |
+
+The first release supports text conversations, system and developer
+instructions, function definitions, function calls, and function outputs. Tool
+calls are passed back to the client; Lane never executes them.
+
+## Command line for local agents
+
+The packaged macOS app can install a small `lane` command. In **Settings**,
+choose **Install command line tool…**. macOS asks for administrator authorization
+once to add the launcher to your command path.
 
 ```bash
 lane status
@@ -44,150 +124,94 @@ lane stop
 lane connection
 lane providers list
 lane models
+lane activity
 lane open
 ```
 
-For agents and scripts:
+Commands support stable machine-readable output:
 
 ```bash
 lane status --json --no-input
-lane start --json --no-input
 lane connection --json --no-input
 lane schema --json --no-input
 ```
 
-The command wakes Lane in the background when needed. It covers Lane's gateway
-functions without exposing UI-only preferences:
+An agent can add, remove, and configure API-key providers without putting a
+secret in process arguments or shell history:
 
 ```bash
-# Connect an API-key provider without putting the secret in argv or shell history.
 printf '%s\n' "$OPENAI_API_KEY" |
-  lane providers add --kind openai --name OpenAI --api-key-stdin --json --no-input
+  lane providers add \
+    --kind openai \
+    --name OpenAI \
+    --api-key-stdin \
+    --json \
+    --no-input
 
 lane providers remove --id PROVIDER_ID --force --json --no-input
 lane models set-default --id PROVIDER_ID/MODEL_ID --json --no-input
 lane models set-default-image --id PROVIDER_ID/IMAGE_MODEL_ID --json --no-input
-lane activity --json --no-input
 ```
 
-`lane connection` deliberately returns the API base URL, endpoint list, and Lane
-client key so an authorized local agent can call the gateway. Provider API keys
-are write-only: the CLI accepts them through stdin but never returns stored
-values. OAuth tokens are never exposed. ChatGPT / Codex sign-in can be initiated
-with `lane providers login`; it still requires the user to finish the provider's
-browser flow.
+`lane connection` returns the local API base URL, routes, and Lane client key so
+an authorized local agent can call the gateway. Stored provider API keys are
+write-only. OAuth tokens are never returned. `lane providers login` can start
+ChatGPT / Codex sign-in, but the user must complete the browser flow.
 
-Example:
-
-```bash
-curl http://127.0.0.1:3210/v1/models \
-  -H "Authorization: Bearer $LANE_CLIENT_KEY"
-```
-
-Use the same key with:
-
-- `GET /health`
-- `GET /v1/models`
-- `POST /v1/images/generations`
-- `POST /v1/responses`
-- `POST /v1/chat/completions`
-
-Responses and Chat Completions support JSON responses and server-sent event
-streams.
-The first release supports text conversations, system/developer instructions,
-function definitions, function calls, and function outputs. It passes tool calls
-back to the client; Lane never executes them.
-
-Image generation is a separate one-shot API. GPT Image responses are returned as
-base64 data, matching the OpenAI Images API:
-
-```bash
-curl http://127.0.0.1:3210/v1/images/generations \
-  -H "Authorization: Bearer $LANE_CLIENT_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "openai-codex/gpt-image-2",
-    "prompt": "A minimal black and white lane icon",
-    "quality": "low",
-    "size": "1024x1024"
-  }'
-```
-
-ChatGPT / Codex OAuth exposes `gpt-image-2`. OpenAI API-key connections expose
-the GPT Image models returned by that account's model list. OpenRouter image
-generation uses pi-ai's image-provider implementation. Custom
-OpenAI-compatible endpoints expose image models when their model IDs identify
-them as image models. Image editing and partial-image streaming are not yet
-supported. `gpt-image-2` does not support native transparent backgrounds, so
-Lane rejects `background: "transparent"` for that model instead of returning an
-opaque image that merely looks transparent. Use an OpenAI API-key connection
-with a transparency-capable model such as `gpt-image-1.5` for native alpha
-output. The ChatGPT / Codex image endpoint is a community integration: image
-generation works, but exact pixel size remains best effort. Audio, file, and
-hosted-tool semantics are also outside the current compatibility promise.
-
-### ChatGPT OAuth boundary
-
-ChatGPT / Codex access uses the provider-owned OAuth implementation in
-[`@earendil-works/pi-ai`](https://github.com/earendil-works/pi/tree/main/packages/ai).
-It requires an eligible ChatGPT subscription. Lane enforces a loopback callback,
-PKCE, and state validation before opening the authorization URL.
-
-This is a community integration, not a stability guarantee from OpenAI.
-Authentication scopes, endpoints, available models, and subscription policy can
-change upstream. A successful automated build does not prove that a real account
-can log in. Real login is an explicit user acceptance step, and Lane's tests never
-send a paid model request.
-
-## Privacy and safety
+## Security model
 
 - The gateway always binds to `127.0.0.1`; no setting can expose it on the LAN.
-- Every request needs a random Lane client key.
-- Browser origins must match an explicit allowlist. `Access-Control-Allow-Origin:
-  *` is never used.
-- Provider credentials and OAuth tokens stay in the Electron main process.
-- Credentials are encrypted with Electron `safeStorage`, backed by Keychain on
-  macOS and the equivalent OS facility on supported platforms. Lane refuses
-  credential storage if a secure backend is unavailable.
-- Activity survives restarts in daily JSONL files under the operating system's
-  app-log directory (`~/Library/Logs/Lane` on macOS). Lane keeps the newest 200
-  entries in the UI, removes files older than 7 days, and caps the directory at
-  5 MiB with 1 MiB file rotation.
-- Activity is redacted before it reaches disk. Lane does not record prompts,
-  model responses, request bodies, request headers, client keys, provider API
-  keys, or OAuth tokens. The log directory is mode `0700` and files are `0600`
-  on platforms that support POSIX permissions.
+- Every API request requires a random Lane client key.
+- Browser origins must match an allowlist. Wildcard CORS is not allowed.
+- Provider credentials and OAuth tokens remain in Electron's main process.
+- Secrets use Electron `safeStorage`, backed by Keychain on macOS and the
+  equivalent secure facility on supported platforms.
+- Logs are redacted before they reach disk. Lane never logs prompts, responses,
+  request bodies, headers, or credentials.
+- Daily activity logs are retained for 7 days and capped at 5 MiB.
 
-The Lane client key is intentionally visible in the app because users must give
-it to local clients. Treat it like a password. See
-[the threat model](docs/THREAT_MODEL.md) for the full boundary.
+The Lane client key is visible because local clients need it. Treat it like a
+password. Read the [threat model](docs/THREAT_MODEL.md) for the full boundary.
 
-## Develop Lane
+## Compatibility boundary
 
-Requirements:
+Lane implements the common OpenAI API subset listed above; it is not a complete
+OpenAI platform emulator. Audio, files, hosted tools, image editing, and partial
+image streaming are outside the current compatibility promise.
 
-- Node.js 22.19 or newer
-- npm
-- macOS for the local packaging smoke test
+ChatGPT / Codex uses the provider-owned OAuth implementation in
+[`@earendil-works/pi-ai`](https://github.com/earendil-works/pi/tree/main/packages/ai).
+It requires an eligible ChatGPT subscription. This is a community integration,
+not an OpenAI stability guarantee: scopes, endpoints, models, and subscription
+policy can change upstream.
+
+`gpt-image-2` can generate images through ChatGPT / Codex OAuth, but native
+transparent output is not supported and exact pixel size is best effort. Lane
+rejects `background: "transparent"` for that model rather than returning an
+opaque image that only looks transparent. Use a compatible OpenAI API-key model
+when native alpha is required.
+
+Automated tests use mocks and never send paid generation requests. Real OAuth
+login and real model use remain explicit user actions.
+
+## Develop
+
+Requirements: Node.js 22.19 or newer and npm.
 
 ```bash
-git clone https://github.com/1MoreBuild/lane.git
-cd lane
+git clone https://github.com/1MoreBuild/Lane.git
+cd Lane
 npm install
 npm run dev
 ```
 
-Quality checks:
+Run the complete local check:
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
-npm run validate:packaging
-npm run build
+npm run check
 ```
 
-Build and smoke-test the current Mac:
+Build and smoke-test on macOS:
 
 ```bash
 npm run package:mac
@@ -195,21 +219,22 @@ npm run smoke:mac
 npm run smoke:cli:mac
 ```
 
-Windows NSIS targets for x64 and arm64 are configured in `package.json`, and CI
-runs static/build checks on `windows-latest`. A Windows runtime claim requires a
-real Windows host; the macOS smoke test is not a substitute.
+Windows NSIS targets for x64 and arm64 are configured, and CI runs build checks
+on `windows-latest`. Windows runtime behavior has not yet been verified on a
+Windows host.
 
-## Design notes
+Lane uses `@earendil-works/pi-ai` directly as its model and provider layer. It
+does not depend on `pi-coding-agent`.
 
-Lane uses `@earendil-works/pi-ai` directly as its model/provider layer. It uses
-the current `Models`, provider factories, provider-owned OAuth, and
-`CredentialStore` APIs. It does not depend on `pi-coding-agent`.
-
-See:
+## Project documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Release checklist](docs/RELEASING.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
-The project is intentionally standalone. It does not modify or depend on Transly.
+Lane is an independent project and is not part of Transly.
+
+## License
+
+[MIT](LICENSE) © 2026 Lane contributors

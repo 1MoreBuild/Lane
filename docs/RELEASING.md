@@ -18,8 +18,8 @@ rollback path.
 
 ## Before the first public beta
 
-1. Decide whether the source repository is public or private and choose a
-   project license. Third-party notices do not license Lane itself.
+1. Decide when the source repository should become public. Lane is licensed
+   under MIT; repository visibility remains a separate release decision.
 2. Confirm the product name, `works.earendil.lane` application identifier,
    versioning policy, support address, privacy statement, and release owner.
 3. Protect `main` and require the CI workflow for pull requests.
