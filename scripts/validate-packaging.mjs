@@ -17,8 +17,14 @@ if (!pkg.build?.mac?.target?.includes("dmg")) failures.push("missing macOS DMG t
 if (pkg.build?.mac?.identity !== null) {
   failures.push("test builds must explicitly remain unsigned");
 }
-if (!pkg.scripts?.["package:mac:test"]?.includes("--universal")) {
-  failures.push("missing universal macOS test package script");
+if (!pkg.scripts?.["package:mac:arm64"]?.includes("--arm64")) {
+  failures.push("missing Apple Silicon macOS test package script");
+}
+if (!pkg.scripts?.["package:mac:x64"]?.includes("--x64")) {
+  failures.push("missing Intel macOS test package script");
+}
+if (pkg.scripts?.["package:mac:test"]?.includes("--universal")) {
+  failures.push("test builds must not combine architectures into a universal app");
 }
 if (!pkg.scripts?.["smoke:dmg:mac"]) failures.push("missing DMG install smoke test");
 const winTarget = pkg.build?.win?.target?.[0];
@@ -36,6 +42,9 @@ if (!releaseWorkflow.includes("contents: write")) {
 }
 if (!releaseWorkflow.includes("npm run smoke:dmg:mac")) {
   failures.push("test release workflow does not install-smoke the DMG");
+}
+if (!releaseWorkflow.includes("macos-latest") || !releaseWorkflow.includes("macos-15-intel")) {
+  failures.push("test release workflow must build on native Apple Silicon and Intel runners");
 }
 if (!releaseWorkflow.includes("gh release create")) {
   failures.push("test release workflow does not publish a GitHub prerelease");

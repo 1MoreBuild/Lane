@@ -8,7 +8,11 @@ const releaseDirectory = new URL("../release/", import.meta.url).pathname;
 const pkg = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
-const dmgName = `Lane-${pkg.version}-mac-universal.dmg`;
+const buildArch = process.env.LANE_SMOKE_ARCH ?? process.arch;
+if (buildArch !== "arm64" && buildArch !== "x64") {
+  throw new Error(`Unsupported macOS smoke-test architecture: ${buildArch}`);
+}
+const dmgName = `Lane-${pkg.version}-mac-${buildArch}.dmg`;
 
 const temporaryRoot = await realpath(tmpdir());
 const temporaryDirectory = await mkdtemp(join(temporaryRoot, "lane-dmg-smoke-"));

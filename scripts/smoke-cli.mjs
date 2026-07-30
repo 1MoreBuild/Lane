@@ -7,12 +7,13 @@ import { join } from "node:path";
 import process from "node:process";
 
 const buildArch = process.env.LANE_SMOKE_ARCH ?? "arm64";
+const buildDirectory = buildArch === "x64" ? "mac" : `mac-${buildArch}`;
 const executable = new URL(
-  `../release/mac-${buildArch}/Lane.app/Contents/MacOS/Lane`,
+  `../release/${buildDirectory}/Lane.app/Contents/MacOS/Lane`,
   import.meta.url,
 ).pathname;
 const packagedLauncher = new URL(
-  `../release/mac-${buildArch}/Lane.app/Contents/Resources/bin/lane`,
+  `../release/${buildDirectory}/Lane.app/Contents/Resources/bin/lane`,
   import.meta.url,
 ).pathname;
 await access(executable);
