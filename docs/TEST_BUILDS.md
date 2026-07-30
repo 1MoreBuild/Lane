@@ -1,7 +1,8 @@
 # Lane unsigned test build
 
 This prerelease is for early feedback. It is not signed or notarized by Apple.
-The DMG contains a universal app for Apple Silicon and Intel Macs.
+Download the Apple Silicon DMG for M-series Macs. Use the Intel DMG only for an
+Intel Mac.
 
 ## Install
 
