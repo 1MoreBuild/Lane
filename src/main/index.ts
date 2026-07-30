@@ -25,6 +25,7 @@ import { isLaneCliInvocation, runLaneCli } from "./cli.ts";
 import {
   getCliSocketPath,
   LaneCliControlServer,
+  requestCliControl,
   type CliControlRequest,
 } from "./cli-control.ts";
 import { CliInstaller } from "./cli-install.ts";
@@ -32,8 +33,11 @@ import { ConfigStore } from "./config-store.ts";
 import { SecureCredentialStore } from "./credential-store.ts";
 import { ElectronSecretBackend } from "./electron-secret-backend.ts";
 import { LaneLogger, redact } from "./logger.ts";
+import { runLaneNativeHost } from "./native-messaging.ts";
+import { NativeMessagingInstaller } from "./native-messaging-install.ts";
 import { OAuthCoordinator } from "./oauth-coordinator.ts";
 import { SecretStore } from "./secret-store.ts";
+import { TRANSLY_EXTENSION_ORIGINS } from "../shared/native-messaging.ts";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
 const smokeMode = process.env.LANE_SMOKE_TEST === "1";
@@ -159,6 +163,17 @@ async function cliResult(request: CliControlRequest, appCore: AppCore): Promise<
   if (command === "default-image-model-set") {
     const state = await stateAfter(() => appCore.setDefaultImageModel(params!.modelId!));
     return { default_image_model: state.defaultImageModel ?? null };
+  }
+  if (command === "browser-client-connect") {
+    const state = await stateAfter(() => appCore.connectBrowserClient(params!.origin!));
+    return {
+      service: "lane",
+      apiUrl: getLaneApiBaseUrl(state.gateway.endpoint),
+      apiKey: state.clientKey,
+      models: state.models.map((model) => model.id),
+      defaultModel: state.defaultModel ?? state.models[0]?.id ?? null,
+      protocol: "responses",
+    };
   }
   const state =
     command === "start"
@@ -512,8 +527,19 @@ async function boot(): Promise<void> {
     launcherPath: join(process.resourcesPath, "bin/lane"),
   });
   const initialState = await core.getState();
-  if (initialState.cliEnabled || process.env.LANE_CLI_CONTROL_ENABLED === "1") {
-    await startCliControl(core);
+  await startCliControl(core);
+  if (!process.defaultApp && !smokeMode) {
+    const nativeMessaging = new NativeMessagingInstaller({
+      executablePath: process.execPath,
+      userDataPath: userData,
+    });
+    try {
+      const integration = await nativeMessaging.install();
+      if (integration.installed) logger.info("Chrome integration is ready");
+      else if (integration.error) logger.warn(integration.error);
+    } catch (error) {
+      logger.warn(`Chrome integration could not be installed: ${redact(error)}`);
+    }
   }
   registerIpc(core, cliInstaller);
   mainWindow = await createWindow();
@@ -537,7 +563,7 @@ function cliArguments(): string[] {
 }
 
 async function wakeLaneApp(): Promise<void> {
-  if (process.platform !== "darwin" || process.defaultApp) return;
+  if (process.defaultApp) return;
   await new Promise<void>((resolveWake, reject) => {
     const child = spawn(process.execPath, [], {
       detached: true,
@@ -553,6 +579,7 @@ async function wakeLaneApp(): Promise<void> {
 }
 
 const args = cliArguments();
+const nativeCallerOrigin = args.find((arg) => arg.startsWith("chrome-extension://"));
 const invokedThroughLauncher =
   resolve(process.argv0) !== resolve(process.execPath) &&
   basename(process.argv0).toLowerCase() === "lane";
@@ -561,7 +588,46 @@ const cliMode =
   invokedThroughLauncher ||
   isLaneCliInvocation(args);
 
-if (cliMode) {
+if (nativeCallerOrigin) {
+  app
+    .whenReady()
+    .then(async () => {
+      app.dock?.hide();
+      const socketPath =
+        process.env.LANE_CONTROL_SOCKET || getCliSocketPath(app.getPath("userData"));
+      const connect = async () => {
+        const request = {
+          command: "browser-client-connect" as const,
+          params: { origin: TRANSLY_EXTENSION_ORIGINS[0] },
+        };
+        try {
+          return await requestCliControl(socketPath, request, 5_000);
+        } catch {
+          await wakeLaneApp();
+          const deadline = Date.now() + 8_000;
+          let lastError: unknown;
+          while (Date.now() < deadline) {
+            try {
+              return await requestCliControl(socketPath, request, 5_000);
+            } catch (error) {
+              lastError = error;
+              await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+            }
+          }
+          throw lastError instanceof Error ? lastError : new Error("Lane is unavailable");
+        }
+      };
+      const code = await runLaneNativeHost({
+        callerOrigin: nativeCallerOrigin,
+        connect,
+      });
+      app.exit(code);
+    })
+    .catch((error: unknown) => {
+      console.error(`Lane native messaging failed: ${redact(error)}`);
+      app.exit(1);
+    });
+} else if (cliMode) {
   app
     .whenReady()
     .then(async () => {

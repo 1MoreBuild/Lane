@@ -41,11 +41,11 @@ local gateway while Lane is running.
 
 ### Agent and CLI control
 
-CLI control is off until the user installs it from the packaged app. On macOS,
-the control socket lives below Lane's private user-data directory and is set to
+The control socket lives below Lane's private user-data directory and is set to
 mode `0600`; its parent is mode `0700`. The versioned protocol accepts only
-documented gateway, provider, model, connection, and diagnostic commands.
-Requests have a size limit and bounded timeouts.
+documented gateway, provider, model, connection, browser-integration, and
+diagnostic commands. Requests have a size limit and bounded timeouts. Installing
+the optional shell command is a separate user action.
 
 `lane connection` deliberately returns the Lane client key because an authorized
 agent needs it to call the gateway. Provider API keys are accepted only over
@@ -54,6 +54,21 @@ keys, OAuth tokens, prompt content, and arbitrary UI settings. Destructive
 provider removal requires `--force`. Activity output uses Lane's existing
 redacted log. The command schema identifies secrets and mutations so agents do
 not need to infer them.
+
+### Browser integration
+
+The packaged app registers a Chrome Native Messaging manifest containing an
+explicit Transly extension-ID allowlist; wildcards are not accepted. The
+current entry is a development ID derived from Transly's manifest key, not a
+confirmed Chrome Web Store item ID. Native-host mode checks Chrome's
+caller-origin argument again before using the private control socket. On
+connection, Lane adds that exact extension origin to its CORS allowlist and
+returns only the Lane API URL, Lane client key, and public model IDs. Provider
+API keys and OAuth tokens never cross this boundary.
+
+Creating the Chrome Web Store item is a production release gate. The Transly
+manifest public key, unpacked extension ID, Dashboard item ID, Native Messaging
+manifest, and Lane allowlist must agree before Lane is published.
 
 ### OAuth
 

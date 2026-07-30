@@ -438,6 +438,7 @@ async function streamResponses(
 export class GatewayServer {
   private server: Server | undefined;
   private endpoint: string | undefined;
+  private allowedOrigins: readonly string[] = [];
   lastError: string | undefined;
 
   constructor(
@@ -456,6 +457,7 @@ export class GatewayServer {
   async start(config: GatewayConfig, clientKey: string): Promise<void> {
     if (this.server) return;
     this.lastError = undefined;
+    this.allowedOrigins = [...config.allowedOrigins];
     const server = createServer(async (request, response) => {
       let finished = false;
       const controller = new AbortController();
@@ -464,7 +466,7 @@ export class GatewayServer {
       });
       request.once("aborted", () => controller.abort());
       try {
-        if (!allowOrigin(request, response, config.allowedOrigins)) return;
+        if (!allowOrigin(request, response, this.allowedOrigins)) return;
         if (request.method === "OPTIONS") {
           response.statusCode = 204;
           response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -621,10 +623,15 @@ export class GatewayServer {
     this.endpoint = `http://${LOOPBACK_HOST}:${config.port}`;
   }
 
+  setAllowedOrigins(origins: readonly string[]): void {
+    this.allowedOrigins = [...origins];
+  }
+
   async stop(): Promise<void> {
     const server = this.server;
     this.server = undefined;
     this.endpoint = undefined;
+    this.allowedOrigins = [];
     if (!server) return;
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

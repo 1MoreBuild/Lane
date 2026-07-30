@@ -38,10 +38,32 @@ same-user Unix socket / Windows named pipe
 gateway, connection, provider, model, and redacted diagnostic operations
 ```
 
-The user enables this path once from the packaged app. On macOS the installer
-creates a symlink to the packaged executable after the system authorization
-dialog. The launcher is independent of the renderer and can wake Lane without
-opening the main window.
+The same-user control socket is an internal application integration point and
+starts with Lane. The optional shell command is enabled separately. On macOS its
+installer creates a symlink to the packaged executable after the system
+authorization dialog. The launcher is independent of the renderer and can wake
+Lane without opening the main window.
+
+The packaged app also registers a Chrome Native Messaging host for an explicit
+Transly extension-ID allowlist. The current entry is the development ID derived
+from Transly's checked-in manifest key, not a confirmed Chrome Web Store ID:
+
+```text
+Transly service worker
+  │ versioned Chrome Native Messaging frame
+  ▼
+packaged Lane executable in native-host mode
+  │ private same-user control socket
+  ▼
+AppCore authorizes the Transly origin and starts the gateway
+  │
+  ▼
+Transly receives only API URL, Lane client key, and public model IDs
+```
+
+The native host manifest is installed in Chrome's per-user directory on macOS
+and Linux, and registered under the current user on Windows. Manual provider
+configuration remains available in Transly when Lane is not installed.
 
 ## Main components
 
@@ -58,6 +80,11 @@ opening the main window.
   versioned schema, deterministic JSON/plain output, semantic exit codes, and no
   prompts in agent mode. API-key providers accept secrets only over stdin; the
   secret is stored by the same main-process credential path used by the UI.
+- `NativeMessagingInstaller` registers the packaged executable for the explicit
+  Transly extension-ID allowlist. Native-host mode validates Chrome's caller
+  origin before requesting a browser-client connection over the private control
+  socket. A production release must first confirm the Chrome Web Store item ID
+  against Transly's manifest public key and unpacked extension ID.
 - `LaneLogger` keeps the latest 200 redacted activity entries in memory and
   mirrors them to daily JSONL files in Electron's application log directory.
   Startup reloads recent entries, removes files older than 7 days, enforces a

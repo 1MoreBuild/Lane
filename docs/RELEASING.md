@@ -31,6 +31,21 @@ rollback path.
 5. Keep signing credentials in the release environment's secret store. Never
    commit certificates, private keys, API keys, or notarization credentials.
 
+### Chrome Web Store integration gate
+
+The current Transly Native Messaging allowlist contains the extension ID
+derived from the development manifest key. Do not treat it as a confirmed
+Chrome Web Store item ID.
+
+Before a public Lane release:
+
+1. Upload the Transly extension zip in the Chrome Developer Dashboard.
+2. Copy the package public key into Transly's manifest `key`.
+3. Verify that the unpacked extension ID matches the Dashboard item ID.
+4. Update and test Lane's explicit extension-ID allowlist if the ID changed.
+
+Never replace the allowlist with a wildcard.
+
 ## macOS direct distribution
 
 Public downloads outside the Mac App Store need:
