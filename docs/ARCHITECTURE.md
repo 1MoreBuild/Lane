@@ -1,0 +1,111 @@
+# Lane architecture
+
+## Shape
+
+```text
+Client app
+  │ OpenAI-compatible HTTP + Lane client key
+  ▼
+127.0.0.1 gateway
+  │ request and stream adapters
+  ▼
+Canonical Lane request/event model
+  │
+  ▼
+@earendil-works/pi-ai Models collection
+  │ provider-owned auth and protocol implementation
+  ▼
+OpenAI / Anthropic / OpenRouter / ChatGPT-Codex / custom endpoint
+```
+
+The Electron main process owns the gateway, provider collection, OAuth flow,
+configuration, logs, and secure storage. The sandboxed renderer receives a small
+IPC API with public status and configuration actions. It never receives an
+upstream API key, access token, or refresh token.
+
+An optional `lane` launcher gives local agents a separate control-plane path:
+
+```text
+agent or shell
+  │ lane <command> --json --no-input
+  ▼
+packaged Lane executable in CLI mode
+  │ versioned newline-delimited JSON
+  ▼
+same-user Unix socket / Windows named pipe
+  │ allowlisted AppCore operations
+  ▼
+gateway, connection, provider, model, and redacted diagnostic operations
+```
+
+The user enables this path once from the packaged app. On macOS the installer
+creates a symlink to the packaged executable after the system authorization
+dialog. The launcher is independent of the renderer and can wake Lane without
+opening the main window.
+
+## Main components
+
+- `AppCore` coordinates configuration, provider changes, startup restoration,
+  gateway lifecycle, and public UI state.
+- `SecureCredentialStore` implements pi-ai's `CredentialStore` contract over an
+  OS-backed encrypted secret store. pi-ai performs OAuth refresh while holding
+  the store's serialized provider mutation.
+- `PiAiRuntime` converts Lane's canonical messages into pi-ai `Context` values
+  and converts pi-ai stream events back into canonical events.
+- `GatewayServer` owns the fixed loopback listener, client authentication, CORS,
+  request cancellation, JSON responses, and SSE output.
+- `LaneCliControlServer` owns the private same-user control socket. The CLI has a
+  versioned schema, deterministic JSON/plain output, semantic exit codes, and no
+  prompts in agent mode. API-key providers accept secrets only over stdin; the
+  secret is stored by the same main-process credential path used by the UI.
+- `LaneLogger` keeps the latest 200 redacted activity entries in memory and
+  mirrors them to daily JSONL files in Electron's application log directory.
+  Startup reloads recent entries, removes files older than 7 days, enforces a
+  5 MiB aggregate cap, and rotates files at 1 MiB. Persistence is diagnostic:
+  a filesystem failure falls back to memory without stopping the gateway.
+- The protocol module maps both OpenAI Responses and Chat Completions onto the
+  same canonical request/event model.
+- Image generation has its own canonical one-shot request/result model. It uses
+  pi-ai's `ImagesModels` collection and does not enter the chat streaming or
+  tool-call path.
+
+## Provider connection model
+
+OAuth and API keys produce the same result: a public `ProviderConfig` plus one
+secret credential keyed by provider ID. Public settings contain names, endpoint
+metadata, and model IDs. Secret values live only in the encrypted secret file.
+
+Built-in OpenAI, Anthropic, OpenRouter, and OpenAI Codex providers come from
+pi-ai provider factories. Custom OpenAI-compatible connections are constructed
+with pi-ai's `createProvider()` and OpenAI Completions protocol implementation.
+Image models use pi-ai's separate `ImagesModels`/`createImagesProvider()`
+abstraction. Lane supplies the OpenAI Images transport that pi-ai does not yet
+ship for OpenAI API-key or ChatGPT / Codex OAuth connections.
+
+Model discovery is a control-plane request. Lane calls the provider's model-list
+endpoint, normalizes IDs, and stores only non-secret model metadata. Generation
+requests stay on the data plane and are never made during connection tests.
+
+## Lifecycle
+
+Settings record whether the gateway should be restored. On launch, Lane restores
+public configuration, obtains the Lane client key from secure storage, rebuilds
+the provider collection, and starts the fixed loopback listener if requested.
+Failure leaves the app open with a concrete diagnostic, such as a port conflict
+or unavailable secure storage.
+
+Removing or logging out a provider deletes its secret before removing the public
+configuration. Changing providers rebuilds the runtime behind a stable gateway
+holder, so clients do not need a new endpoint.
+
+Activity is loaded before configuration restoration so startup events append to
+the previous history. Clean shutdown waits for queued activity writes. Cleanup
+runs at startup, after rotation, and at least daily while Lane remains open.
+
+## Compatibility policy
+
+The HTTP surface follows the common text and function-call subset of OpenAI
+Responses and Chat Completions plus one-shot OpenAI Images generations. Each
+supported provider is still constrained by its own model and protocol
+capabilities. Lane returns an explicit OpenAI-shaped error when a request cannot
+be represented; it does not invent missing provider semantics.

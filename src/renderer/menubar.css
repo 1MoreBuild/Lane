@@ -1,0 +1,175 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@source "../components";
+@source "../lib";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  color-scheme: light dark;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-synthesis: none;
+  --panel: rgb(248 248 247 / 91%);
+  --panel-edge: rgb(0 0 0 / 9%);
+  --surface: rgb(0 0 0 / 4.5%);
+  --surface-hover: rgb(0 0 0 / 7.5%);
+  --text: rgb(24 24 24);
+  --secondary: rgb(86 86 86);
+  --tertiary: rgb(112 112 112);
+  --divider: rgb(0 0 0 / 10%);
+  --switch: oklch(0.2 0 0);
+  --switch-knob: oklch(0.94 0.002 240 / 66%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --panel: rgb(32 32 32 / 92%);
+    --panel-edge: rgb(255 255 255 / 13%);
+    --surface: rgb(255 255 255 / 7%);
+    --surface-hover: rgb(255 255 255 / 11%);
+    --text: rgb(242 242 242);
+    --secondary: rgb(184 184 184);
+    --tertiary: rgb(148 148 148);
+    --divider: rgb(255 255 255 / 14%);
+    --switch: oklch(0.922 0 0);
+    --switch-knob: oklch(0.205 0 0);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: transparent;
+  color: var(--text);
+  user-select: none;
+}
+
+button {
+  color: inherit;
+  font: inherit;
+}
+
+.menubar-shell {
+  -webkit-backdrop-filter: blur(36px) saturate(155%);
+  backdrop-filter: blur(36px) saturate(155%);
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: 12px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 28%),
+    0 2px 6px rgb(0 0 0 / 12%);
+  height: calc(100% - 8px);
+  margin: 4px;
+  overflow: hidden;
+}
+
+.menubar-loading {
+  align-items: center;
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  color: var(--secondary);
+  font-size: 11.5px;
+}
+
+.menubar-loading svg {
+  animation: spin 800ms linear infinite;
+  height: 14px;
+  width: 14px;
+}
+
+.menubar-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  min-height: 29px;
+  padding: 5px 10px 2px 11px;
+}
+
+.menubar-header strong {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.menubar-header strong.is-error {
+  color: #d93f3c;
+}
+
+[data-slot="switch"] {
+  background: var(--surface-hover);
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 1px var(--divider);
+}
+
+[data-slot="switch"][data-checked] {
+  background: var(--switch);
+  box-shadow: none;
+}
+
+[data-slot="switch-thumb"] {
+  background: var(--switch-knob);
+}
+
+.menubar-footer button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.menubar-footer button:active {
+  transform: scale(0.98);
+}
+
+.menubar-footer {
+  margin: 0 6px;
+  padding: 0 0 3px;
+}
+
+.menubar-footer button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  display: flex;
+  font-size: 11.5px;
+  font-weight: 500;
+  justify-content: flex-start;
+  min-height: 25px;
+  padding: 0 5px;
+  width: 100%;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .menubar-shell {
+    backdrop-filter: none;
+    background: var(--panel);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}

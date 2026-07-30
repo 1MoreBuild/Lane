@@ -1,0 +1,15 @@
+node_modules/
+dist/
+release/
+coverage/
+*.log
+.DS_Store
+.lane-smoke-ready
+.env
+.env.*
+!.env.example
+*.cer
+*.key
+*.mobileprovision
+*.p12
+*.pem
