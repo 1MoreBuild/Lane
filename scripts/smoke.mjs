@@ -2,7 +2,11 @@ import { access, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import process from "node:process";
 
-const executable = new URL("../release/mac-arm64/Lane.app/Contents/MacOS/Lane", import.meta.url).pathname;
+const buildArch = process.env.LANE_SMOKE_ARCH ?? "arm64";
+const executable = new URL(
+  `../release/mac-${buildArch}/Lane.app/Contents/MacOS/Lane`,
+  import.meta.url,
+).pathname;
 const marker = new URL("../.lane-smoke-ready", import.meta.url).pathname;
 await rm(marker, { force: true });
 await access(executable);

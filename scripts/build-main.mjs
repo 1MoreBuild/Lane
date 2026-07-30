@@ -8,7 +8,7 @@ await build({
   bundle: true,
   platform: "node",
   format: "esm",
-  target: "node22",
+  target: "node24",
   // pi-ai intentionally loads Node-only OAuth modules relative to its own
   // import.meta.url. Keep the package external so bundling cannot relocate
   // that provider-owned loader.
@@ -40,7 +40,7 @@ await build({
   bundle: true,
   platform: "node",
   format: "cjs",
-  target: "node22",
+  target: "node24",
   external: ["electron"],
   sourcemap: true,
   logLevel: "info",

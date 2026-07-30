@@ -196,7 +196,7 @@ login and real model use remain explicit user actions.
 
 ## Develop
 
-Requirements: Node.js 22.19 or newer and npm.
+Requirements: Node.js 24 LTS and npm.
 
 ```bash
 git clone https://github.com/1MoreBuild/Lane.git
