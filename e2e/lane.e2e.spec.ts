@@ -491,8 +491,12 @@ test.describe("Lane packaged product journeys", () => {
       [TRANSLY_PRODUCTION_NATIVE_ALLOWED_ORIGIN],
       request,
     );
-    expect(native.code, native.stderr).toBe(0);
-    expect(decodeNativeFrame(native.stdout)).toMatchObject({
+    const nativeResponse = decodeNativeFrame(native.stdout);
+    expect(
+      native.code,
+      `${native.stderr}\n${JSON.stringify(nativeResponse)}`,
+    ).toBe(0);
+    expect(nativeResponse).toMatchObject({
       protocolVersion: LANE_NATIVE_PROTOCOL_VERSION,
       ok: true,
       data: {
