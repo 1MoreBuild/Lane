@@ -59,16 +59,18 @@ not need to infer them.
 
 The packaged app registers a Chrome Native Messaging manifest containing an
 explicit Transly extension-ID allowlist; wildcards are not accepted. The
-current entry is a development ID derived from Transly's manifest key, not a
-confirmed Chrome Web Store item ID. Native-host mode checks Chrome's
-caller-origin argument again before using the private control socket. On
-connection, Lane adds that exact extension origin to its CORS allowlist and
-returns only the Lane API URL, Lane client key, and public model IDs. Provider
-API keys and OAuth tokens never cross this boundary.
+allowlist contains the verified production Web Store ID
+`mdjfkiddlpdgchddcckhcmdjekmmhcgp` and the intentionally retained unpacked
+development ID `lmpgipgoelkfcbdpboffkbhniifhicdd`. Native-host mode checks
+Chrome's caller-origin argument again before using the private control socket.
+On connection, Lane forwards that exact verified origin, adds its canonical
+form to the CORS allowlist, and returns only the Lane API URL, Lane client key,
+and public model IDs. Provider API keys and OAuth tokens never cross this
+boundary.
 
-Creating the Chrome Web Store item is a production release gate. The Transly
-manifest public key, unpacked extension ID, Dashboard item ID, Native Messaging
-manifest, and Lane allowlist must agree before Lane is published.
+For each production release, the Transly manifest public key, unpacked extension
+ID, Dashboard item ID, Native Messaging manifest, and Lane allowlist must still
+agree.
 
 ### OAuth
 

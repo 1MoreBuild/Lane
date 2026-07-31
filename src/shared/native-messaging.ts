@@ -1,17 +1,29 @@
 export const LANE_NATIVE_HOST_NAME = "works.earendil.lane";
 export const LANE_NATIVE_PROTOCOL_VERSION = 1;
+export const TRANSLY_PRODUCTION_EXTENSION_ID = "mdjfkiddlpdgchddcckhcmdjekmmhcgp";
+export const TRANSLY_PRODUCTION_EXTENSION_ORIGIN =
+  `chrome-extension://${TRANSLY_PRODUCTION_EXTENSION_ID}`;
+export const TRANSLY_PRODUCTION_NATIVE_ALLOWED_ORIGIN =
+  `${TRANSLY_PRODUCTION_EXTENSION_ORIGIN}/`;
 export const TRANSLY_DEVELOPMENT_EXTENSION_ID = "lmpgipgoelkfcbdpboffkbhniifhicdd";
 export const TRANSLY_DEVELOPMENT_EXTENSION_ORIGIN =
   `chrome-extension://${TRANSLY_DEVELOPMENT_EXTENSION_ID}`;
 export const TRANSLY_DEVELOPMENT_NATIVE_ALLOWED_ORIGIN =
   `${TRANSLY_DEVELOPMENT_EXTENSION_ORIGIN}/`;
 
-// This is an explicit allowlist, never a wildcard. Before a public Lane
-// release, add or replace IDs only after verifying the Chrome Web Store item
-// ID against Transly's manifest key and unpacked extension ID.
-export const TRANSLY_EXTENSION_IDS = [TRANSLY_DEVELOPMENT_EXTENSION_ID] as const;
-export const TRANSLY_EXTENSION_ORIGINS = [TRANSLY_DEVELOPMENT_EXTENSION_ORIGIN] as const;
+// This is an explicit allowlist, never a wildcard. The production ID is
+// verified against Transly's Chrome Web Store draft. The development ID remains
+// intentionally supported for the checked-in key and local unpacked builds.
+export const TRANSLY_EXTENSION_IDS = [
+  TRANSLY_PRODUCTION_EXTENSION_ID,
+  TRANSLY_DEVELOPMENT_EXTENSION_ID,
+] as const;
+export const TRANSLY_EXTENSION_ORIGINS = [
+  TRANSLY_PRODUCTION_EXTENSION_ORIGIN,
+  TRANSLY_DEVELOPMENT_EXTENSION_ORIGIN,
+] as const;
 export const TRANSLY_NATIVE_ALLOWED_ORIGINS = [
+  TRANSLY_PRODUCTION_NATIVE_ALLOWED_ORIGIN,
   TRANSLY_DEVELOPMENT_NATIVE_ALLOWED_ORIGIN,
 ] as const;
 
