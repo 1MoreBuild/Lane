@@ -1,5 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -109,8 +109,9 @@ describe("Lane native messaging", () => {
   it("installs a Chrome host manifest scoped to the explicit Transly allowlist", async () => {
     const homePath = dirname(await tempPath("home-marker"));
     const userDataPath = await tempPath("user-data");
+    const executablePath = "/Applications/Lane.app/Contents/MacOS/Lane";
     const installer = new NativeMessagingInstaller({
-      executablePath: "/Applications/Lane.app/Contents/MacOS/Lane",
+      executablePath,
       platform: "darwin",
       homePath,
       userDataPath,
@@ -124,7 +125,7 @@ describe("Lane native messaging", () => {
     expect(manifest).toEqual({
       name: LANE_NATIVE_HOST_NAME,
       description: "Connect approved browser extensions to the Lane local AI gateway",
-      path: "/Applications/Lane.app/Contents/MacOS/Lane",
+      path: resolve(executablePath),
       type: "stdio",
       allowed_origins: TRANSLY_NATIVE_ALLOWED_ORIGINS,
     });
