@@ -5,26 +5,13 @@ export const TRANSLY_PRODUCTION_EXTENSION_ORIGIN =
   `chrome-extension://${TRANSLY_PRODUCTION_EXTENSION_ID}`;
 export const TRANSLY_PRODUCTION_NATIVE_ALLOWED_ORIGIN =
   `${TRANSLY_PRODUCTION_EXTENSION_ORIGIN}/`;
-export const TRANSLY_DEVELOPMENT_EXTENSION_ID = "lmpgipgoelkfcbdpboffkbhniifhicdd";
-export const TRANSLY_DEVELOPMENT_EXTENSION_ORIGIN =
-  `chrome-extension://${TRANSLY_DEVELOPMENT_EXTENSION_ID}`;
-export const TRANSLY_DEVELOPMENT_NATIVE_ALLOWED_ORIGIN =
-  `${TRANSLY_DEVELOPMENT_EXTENSION_ORIGIN}/`;
 
 // This is an explicit allowlist, never a wildcard. The production ID is
-// verified against Transly's Chrome Web Store draft. The development ID remains
-// intentionally supported for the checked-in key and local unpacked builds.
-export const TRANSLY_EXTENSION_IDS = [
-  TRANSLY_PRODUCTION_EXTENSION_ID,
-  TRANSLY_DEVELOPMENT_EXTENSION_ID,
-] as const;
-export const TRANSLY_EXTENSION_ORIGINS = [
-  TRANSLY_PRODUCTION_EXTENSION_ORIGIN,
-  TRANSLY_DEVELOPMENT_EXTENSION_ORIGIN,
-] as const;
+// derived from Transly's verified Chrome Web Store public key. The same key is
+// checked into Transly's manifest, so unpacked and store builds use this ID.
+export const TRANSLY_EXTENSION_ORIGINS = [TRANSLY_PRODUCTION_EXTENSION_ORIGIN] as const;
 export const TRANSLY_NATIVE_ALLOWED_ORIGINS = [
   TRANSLY_PRODUCTION_NATIVE_ALLOWED_ORIGIN,
-  TRANSLY_DEVELOPMENT_NATIVE_ALLOWED_ORIGIN,
 ] as const;
 
 export function isAllowedTranslyExtensionOrigin(value: string): boolean {

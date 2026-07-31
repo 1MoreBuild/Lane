@@ -1,12 +1,14 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   ipcMain,
   nativeImage,
   nativeTheme,
@@ -14,13 +16,21 @@ import {
   shell,
   Tray,
 } from "electron";
-import type { AddProviderInput, LaneState, OAuthUiEvent } from "../shared/contracts.ts";
+import electronUpdater from "electron-updater";
+import type {
+  AddProviderInput,
+  LaneState,
+  LaneUpdateState,
+  OAuthUiEvent,
+} from "../shared/contracts.ts";
 import {
   getLaneApiBaseUrl,
   getLaneApiUrl,
   LANE_API_ROUTES,
 } from "../shared/api-endpoints.ts";
 import { AppCore } from "./app-core.ts";
+import { LaneAutoUpdate } from "./auto-update.ts";
+import { GatewayStartError } from "./gateway.ts";
 import { isLaneCliInvocation, runLaneCli } from "./cli.ts";
 import {
   getCliSocketPath,
@@ -32,6 +42,7 @@ import { CliInstaller } from "./cli-install.ts";
 import { ConfigStore } from "./config-store.ts";
 import { SecureCredentialStore } from "./credential-store.ts";
 import { ElectronSecretBackend } from "./electron-secret-backend.ts";
+import { E2ESecretBackend } from "./e2e-secret-backend.ts";
 import { LaneLogger, redact } from "./logger.ts";
 import { runLaneNativeHost } from "./native-messaging.ts";
 import { NativeMessagingInstaller } from "./native-messaging-install.ts";
@@ -39,11 +50,17 @@ import { OAuthCoordinator } from "./oauth-coordinator.ts";
 import { SecretStore } from "./secret-store.ts";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
-const smokeMode = process.env.LANE_SMOKE_TEST === "1";
 const cliWakeMode = process.env.LANE_CLI_WAKE === "1";
-if (smokeMode) app.setPath("userData", mkdtempSync(join(tmpdir(), "lane-smoke-")));
-if (process.env.LANE_TEST_USER_DATA) {
-  app.setPath("userData", process.env.LANE_TEST_USER_DATA);
+const releaseBuild = process.env.LANE_RELEASE_BUILD === "1";
+const e2eUserData = process.env.LANE_E2E_USER_DATA;
+const e2eMode = e2eUserData !== undefined;
+if (e2eUserData) {
+  const temporaryRoot = `${realpathSync(tmpdir())}${sep}`;
+  const resolvedUserData = realpathSync(e2eUserData);
+  if (!resolvedUserData.startsWith(temporaryRoot)) {
+    throw new Error("Lane E2E user data must be an existing temporary directory");
+  }
+  app.setPath("userData", resolvedUserData);
 }
 process.env.PI_OAUTH_CALLBACK_HOST = "127.0.0.1";
 
@@ -54,9 +71,12 @@ let core: AppCore | undefined;
 let oauth: OAuthCoordinator | undefined;
 let cliControlServer: LaneCliControlServer | undefined;
 let cliInstaller: CliInstaller | undefined;
+let autoUpdate: LaneAutoUpdate | undefined;
+let updateState: LaneUpdateState = { status: "idle" };
 let quitting = false;
 let shutdownComplete = false;
 let shutdownInProgress = false;
+let shutdownPromise: Promise<void> | undefined;
 let menuBarIconVisible = true;
 
 function sendState(state: LaneState): void {
@@ -67,6 +87,28 @@ function sendState(state: LaneState): void {
 
 function sendOAuth(event: OAuthUiEvent): void {
   mainWindow?.webContents.send("lane:oauth-event", event);
+}
+
+function sendUpdateState(state: LaneUpdateState): void {
+  updateState = state;
+  mainWindow?.webContents.send("lane:update-state-changed", state);
+}
+
+async function shutdownServices(): Promise<void> {
+  if (shutdownComplete) return;
+  if (!shutdownPromise) {
+    shutdownInProgress = true;
+    shutdownPromise = Promise.all([cliControlServer?.stop(), core?.shutdown()])
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        console.error(`Lane shutdown warning: ${redact(error)}`);
+      })
+      .finally(() => {
+        shutdownComplete = true;
+        shutdownInProgress = false;
+      });
+  }
+  await shutdownPromise;
 }
 
 function showMainWindow(): void {
@@ -93,6 +135,71 @@ async function stateAfter(action: () => Promise<LaneState>): Promise<LaneState> 
     return state;
   } catch (error) {
     throw new Error(redact(error));
+  }
+}
+
+async function isPortAvailable(port: number): Promise<boolean> {
+  const server = createServer();
+  return await new Promise<boolean>((resolveAvailable) => {
+    server.once("error", () => resolveAvailable(false));
+    server.listen(port, "127.0.0.1", () => {
+      server.close(() => resolveAvailable(true));
+    });
+  });
+}
+
+async function findAlternativePort(currentPort: number): Promise<number> {
+  for (let offset = 1; offset <= 20; offset += 1) {
+    const candidate = currentPort + offset;
+    if (candidate > 65_535) break;
+    if (await isPortAvailable(candidate)) return candidate;
+  }
+  const server = createServer();
+  return await new Promise<number>((resolvePort, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("Could not find an available local port"));
+        return;
+      }
+      server.close((error) => (error ? reject(error) : resolvePort(address.port)));
+    });
+  });
+}
+
+async function startGatewayFromUi(
+  appCore: AppCore,
+  parent: BrowserWindow | null,
+): Promise<LaneState> {
+  try {
+    const state = await appCore.startGateway();
+    sendState(state);
+    return state;
+  } catch (error) {
+    if (!(error instanceof GatewayStartError) || error.code !== "EADDRINUSE") {
+      throw new Error(redact(error));
+    }
+    const state = await appCore.getState();
+    const currentPort = Number(new URL(state.gateway.endpoint).port);
+    const alternativePort = await findAlternativePort(currentPort);
+    const options: Electron.MessageBoxOptions = {
+      type: "warning",
+      message: `Port ${currentPort} is already in use`,
+      detail:
+        `Lane can use port ${alternativePort} instead. ` +
+        "Apps using the current API URL will need to be updated.",
+      buttons: [`Use port ${alternativePort}`, "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    };
+    const choice = parent
+      ? await dialog.showMessageBox(parent, options)
+      : await dialog.showMessageBox(options);
+    if (choice.response !== 0) throw new Error(redact(error));
+    return await stateAfter(() => appCore.startGatewayOnPort(alternativePort));
   }
 }
 
@@ -243,6 +350,10 @@ async function startCliControl(appCore: AppCore): Promise<void> {
 
 function registerIpc(appCore: AppCore, installer: CliInstaller): void {
   ipcMain.handle("lane:get-state", () => appCore.getState());
+  ipcMain.handle("lane:get-update-state", () => updateState);
+  ipcMain.handle("lane:download-update", async () => {
+    await autoUpdate?.downloadAvailable();
+  });
   ipcMain.handle("lane:add-provider", (_event, input: unknown) =>
     stateAfter(() => appCore.addProvider(validateProviderInput(input))),
   );
@@ -276,7 +387,9 @@ function registerIpc(appCore: AppCore, installer: CliInstaller): void {
     if (typeof model !== "string") throw new Error("Image model id is required");
     return stateAfter(() => appCore.setDefaultImageModel(model));
   });
-  ipcMain.handle("lane:start-gateway", () => stateAfter(() => appCore.startGateway()));
+  ipcMain.handle("lane:start-gateway", (event) =>
+    startGatewayFromUi(appCore, BrowserWindow.fromWebContents(event.sender)),
+  );
   ipcMain.handle("lane:stop-gateway", () => stateAfter(() => appCore.stopGateway()));
   ipcMain.handle("lane:set-launch-at-login", (_event, enabled: unknown) => {
     if (typeof enabled !== "boolean") throw new Error("Boolean value required");
@@ -437,7 +550,7 @@ async function createMenubarWindow(): Promise<BrowserWindow> {
     if (!window.webContents.isDevToolsOpened()) window.hide();
   });
   window.on("close", (event) => {
-    if (!quitting && !smokeMode) {
+    if (!quitting && !e2eMode) {
       event.preventDefault();
       window.hide();
     }
@@ -458,7 +571,7 @@ async function createWindow(): Promise<BrowserWindow> {
     height: 460,
     minWidth: 620,
     minHeight: 440,
-    show: !smokeMode && !cliWakeMode,
+    show: !cliWakeMode,
     title: "Lane",
     backgroundColor:
       process.platform === "darwin"
@@ -483,7 +596,7 @@ async function createWindow(): Promise<BrowserWindow> {
     },
   });
   window.on("close", (event) => {
-    if (!quitting && !smokeMode) {
+    if (!quitting && !e2eMode) {
       event.preventDefault();
       window.hide();
     }
@@ -497,18 +610,42 @@ async function createWindow(): Promise<BrowserWindow> {
   return window;
 }
 
+function startAutomaticUpdates(logger: LaneLogger): void {
+  if (
+    !releaseBuild ||
+    !app.isPackaged ||
+    e2eMode ||
+    cliWakeMode ||
+    app.getVersion().includes("-") ||
+    process.env.LANE_DISABLE_AUTO_UPDATE === "1"
+  ) {
+    return;
+  }
+  autoUpdate = new LaneAutoUpdate({
+    updater: electronUpdater.autoUpdater,
+    logger,
+    onStateChanged: sendUpdateState,
+    prepareToInstall: async () => {
+      quitting = true;
+      oauth?.cancel();
+      await shutdownServices();
+    },
+  });
+  autoUpdate.start();
+}
+
 async function boot(): Promise<void> {
   const userData = app.getPath("userData");
-  if (process.env.LANE_TEST_USER_DATA) {
+  if (e2eMode) {
     app.setAppLogsPath(join(userData, "logs"));
   } else {
     app.setAppLogsPath();
   }
   const logger = new LaneLogger({ directory: app.getPath("logs") });
-  const secretStore = new SecretStore(
-    join(userData, "secrets.json"),
-    new ElectronSecretBackend(),
-  );
+  const secretBackend = e2eMode
+    ? new E2ESecretBackend(process.env.LANE_E2E_SECRET_KEY ?? "")
+    : new ElectronSecretBackend();
+  const secretStore = new SecretStore(join(userData, "secrets.json"), secretBackend);
   const credentials = new SecureCredentialStore(secretStore);
   core = new AppCore({
     configStore: new ConfigStore(join(userData, "settings.json")),
@@ -527,10 +664,9 @@ async function boot(): Promise<void> {
   });
   const initialState = await core.getState();
   await startCliControl(core);
-  if (!process.defaultApp && !smokeMode) {
+  if (!process.defaultApp && !e2eMode && process.platform === "darwin") {
     const nativeMessaging = new NativeMessagingInstaller({
       executablePath: process.execPath,
-      userDataPath: userData,
     });
     try {
       const integration = await nativeMessaging.install();
@@ -547,14 +683,7 @@ async function boot(): Promise<void> {
   mainWindow.on("closed", () => {
     mainWindow = undefined;
   });
-  if (smokeMode) {
-    const marker = process.env.LANE_SMOKE_MARKER;
-    if (!marker) throw new Error("LANE_SMOKE_MARKER is required in smoke mode");
-    writeFileSync(marker, "ready\n", { encoding: "utf8", mode: 0o600 });
-    quitting = true;
-    await core.shutdown();
-    app.quit();
-  }
+  startAutomaticUpdates(logger);
 }
 
 function cliArguments(): string[] {
@@ -619,6 +748,9 @@ if (nativeCallerOrigin) {
       const code = await runLaneNativeHost({
         callerOrigin: nativeCallerOrigin,
         connect,
+        onError: (error) => {
+          console.error(`Lane native messaging unavailable: ${redact(error)}`);
+        },
       });
       app.exit(code);
     })
@@ -668,15 +800,7 @@ if (nativeCallerOrigin) {
     if (shutdownComplete) return;
     event.preventDefault();
     if (shutdownInProgress) return;
-    shutdownInProgress = true;
-    void Promise.all([cliControlServer?.stop(), core?.shutdown()])
-      .catch((error: unknown) => {
-        console.error(`Lane shutdown warning: ${redact(error)}`);
-      })
-      .finally(() => {
-        shutdownComplete = true;
-        app.quit();
-      });
+    void shutdownServices().finally(() => app.quit());
   });
 
   app.on("window-all-closed", () => {

@@ -14,7 +14,7 @@ import {
 } from "../shared/native-messaging.ts";
 import { ConfigStore } from "./config-store.ts";
 import type { SecureCredentialStore } from "./credential-store.ts";
-import { GatewayServer, RuntimeHolder } from "./gateway.ts";
+import { GatewayServer, GatewayStartError, RuntimeHolder } from "./gateway.ts";
 import { LaneLogger, redact } from "./logger.ts";
 import {
   discoverModels,
@@ -28,6 +28,7 @@ import { assertSafeUpstreamUrl } from "./security.ts";
 import type { SecretStore } from "./secret-store.ts";
 
 const CLIENT_KEY_SECRET = "lane:client-key";
+const PORT_RETRY_DELAYS_MS = [0, 100, 250, 500] as const;
 
 const DEFAULT_NAMES: Record<Exclude<ProviderKind, "openai-codex">, string> = {
   openai: "OpenAI",
@@ -102,7 +103,7 @@ export class AppCore {
     await this.setMenuBarIcon(this.config.visibility.showMenuBarIcon);
     if (this.config.gateway.autoStart) {
       try {
-        await this.gateway.start(this.config.gateway, this.clientKey);
+        await this.startGatewayWithRetry(this.config, this.clientKey);
         this.logger.info(`Gateway restored on ${this.gateway.getEndpoint(this.config.gateway.port)}`);
       } catch (error) {
         this.logger.error(error);
@@ -148,6 +149,25 @@ export class AppCore {
     await this.configStore.save(config);
     this.config = config;
     this.rebuildRuntime();
+  }
+
+  private async startGatewayWithRetry(config: LaneConfig, clientKey: string): Promise<void> {
+    let lastError: unknown;
+    for (const delay of PORT_RETRY_DELAYS_MS) {
+      if (delay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+      try {
+        await this.gateway.start(config.gateway, clientKey);
+        return;
+      } catch (error) {
+        lastError = error;
+        if (!(error instanceof GatewayStartError) || error.code !== "EADDRINUSE") {
+          throw error;
+        }
+      }
+    }
+    throw lastError;
   }
 
   private providerId(input: AddProviderInput): string {
@@ -287,7 +307,7 @@ export class AppCore {
 
   async startGateway(): Promise<LaneState> {
     const { config, clientKey } = this.requireInitialized();
-    await this.gateway.start(config.gateway, clientKey);
+    await this.startGatewayWithRetry(config, clientKey);
     try {
       await this.persist({
         ...config,
@@ -298,6 +318,47 @@ export class AppCore {
       throw error;
     }
     this.logger.info(`Gateway started on ${this.gateway.getEndpoint(config.gateway.port)}`);
+    return await this.getState();
+  }
+
+  async startGatewayOnPort(port: number): Promise<LaneState> {
+    if (!Number.isInteger(port) || port < 1024 || port > 65_535) {
+      throw new Error("Gateway port must be between 1024 and 65535");
+    }
+    if (this.gateway.isRunning()) {
+      throw new Error("Stop the gateway before changing its port");
+    }
+    const { config, clientKey } = this.requireInitialized();
+    const previousPort = config.gateway.port;
+    const allowedOrigins = [...new Set(config.gateway.allowedOrigins.map((origin) => {
+      if (origin === `http://127.0.0.1:${previousPort}`) {
+        return `http://127.0.0.1:${port}`;
+      }
+      if (origin === `http://localhost:${previousPort}`) {
+        return `http://localhost:${port}`;
+      }
+      return origin;
+    }))];
+    const nextConfig: LaneConfig = {
+      ...config,
+      gateway: {
+        ...config.gateway,
+        port,
+        autoStart: false,
+        allowedOrigins,
+      },
+    };
+    await this.startGatewayWithRetry(nextConfig, clientKey);
+    try {
+      await this.persist({
+        ...nextConfig,
+        gateway: { ...nextConfig.gateway, autoStart: true },
+      });
+    } catch (error) {
+      await this.gateway.stop();
+      throw error;
+    }
+    this.logger.info(`Gateway moved to ${this.gateway.getEndpoint(port)}`);
     return await this.getState();
   }
 
@@ -323,7 +384,7 @@ export class AppCore {
     }
     this.gateway.setAllowedOrigins(allowedOrigins);
     if (!this.gateway.isRunning()) {
-      await this.gateway.start(nextConfig.gateway, clientKey);
+      await this.startGatewayWithRetry(nextConfig, clientKey);
       nextConfig = {
         ...nextConfig,
         gateway: { ...nextConfig.gateway, autoStart: true },

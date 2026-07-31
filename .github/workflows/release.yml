@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build signed macOS release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: macos-latest
+    env:
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check
+      - run: node scripts/verify-release-tag.mjs "$GITHUB_REF_NAME" stable
+
+      - name: Require signing and notarization credentials
+        run: |
+          test -n "$CSC_LINK"
+          test -n "$CSC_KEY_PASSWORD"
+          test -n "$APPLE_ID"
+          test -n "$APPLE_APP_SPECIFIC_PASSWORD"
+          test -n "$APPLE_TEAM_ID"
+
+      - name: Build signed Apple Silicon and Intel updates
+        run: npm run package:mac:release
+
+      - name: Verify signatures and notarization
+        run: |
+          while IFS= read -r -d '' app_path; do
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            spctl --assess --type execute --verbose=4 "$app_path"
+          done < <(find release -type d -name Lane.app -print0)
+          for dmg_path in release/Lane-*-mac-*.dmg; do
+            xcrun stapler validate "$dmg_path"
+          done
+          test -f release/latest-mac.yml
+
+      - name: Run installed Apple Silicon product E2E
+        env:
+          LANE_E2E_ARCH: arm64
+        run: npm run e2e:dmg:mac
+      - name: Upload Apple Silicon E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Lane-E2E-arm64-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results/e2e
+          if-no-files-found: ignore
+
+      - name: Create checksums
+        run: |
+          cd release
+          shasum -a 256 Lane-*-mac-*.dmg Lane-*-mac-*.zip > SHA256SUMS
+
+      - name: Stage verified release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Lane-${{ github.ref_name }}-stable
+          path: |
+            release/Lane-*-mac-*.dmg
+            release/Lane-*-mac-*.zip
+            release/latest-mac.yml
+            release/*.blockmap
+            release/SHA256SUMS
+          if-no-files-found: error
+
+  intel-e2e:
+    name: Run installed Intel product E2E
+    needs: build
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: Lane-${{ github.ref_name }}-stable
+          path: release
+      - name: Run Intel DMG E2E
+        env:
+          LANE_E2E_ARCH: x64
+        run: npm run e2e:dmg:mac
+      - name: Upload Intel E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Lane-E2E-x64-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results/e2e
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish stable release
+    needs: [build, intel-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: Lane-${{ github.ref_name }}-stable
+          path: release
+      - name: Publish stable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          files=(
+            release/Lane-*-mac-*.dmg
+            release/Lane-*-mac-*.zip
+            release/latest-mac.yml
+            release/*.blockmap
+            release/SHA256SUMS
+          )
+          gh release create "$GITHUB_REF_NAME" "${files[@]}" \
+            --verify-tag \
+            --generate-notes \
+            --title "Lane $GITHUB_REF_NAME"

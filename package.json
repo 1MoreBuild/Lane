@@ -1,10 +1,10 @@
 {
   "name": "lane-local-ai-gateway",
-  "version": "0.1.0-test.2",
+  "version": "0.1.0",
   "private": true,
   "description": "A local, multi-provider AI gateway for desktop apps.",
   "author": "Lane contributors",
-  "license": "MIT",
+  "license": "0BSD",
   "repository": {
     "type": "git",
     "url": "https://github.com/1MoreBuild/Lane.git"
@@ -21,29 +21,38 @@
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build",
     "build": "npm run build:main && npm run build:renderer",
+    "build:release": "cross-env LANE_RELEASE_BUILD=1 npm run build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e": "playwright test",
+    "e2e:dmg:mac": "node scripts/e2e-dmg.mjs",
+    "e2e:mac:arm64": "npm run package:e2e:mac:arm64 && cross-env LANE_E2E_APP_PATH=release/mac-arm64/Lane.app/Contents/MacOS/Lane npm run e2e",
+    "e2e:mac:x64": "npm run package:e2e:mac:x64 && cross-env LANE_E2E_APP_PATH=release/mac/Lane.app/Contents/MacOS/Lane npm run e2e",
+    "e2e:win:x64": "npm run package:e2e:win:x64 && cross-env LANE_E2E_APP_PATH=release/win-unpacked/Lane.exe npm run e2e",
     "validate:packaging": "node scripts/validate-packaging.mjs",
     "package:mac": "npm run build:icon && npm run build && electron-builder --mac dir --arm64",
     "package:mac:arm64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir dmg --arm64 --publish never",
     "package:mac:x64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir dmg --x64 --publish never",
+    "package:e2e:mac:arm64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --arm64 --publish never",
+    "package:e2e:mac:x64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --x64 --publish never",
+    "package:e2e:win:x64": "npm run build && electron-builder --win --x64 --dir --publish never",
+    "package:mac:release": "npm run build:icon && npm run build:release && electron-builder --mac dmg zip --arm64 --x64 --publish never -c.mac.forceCodeSigning=true",
     "package:mac:test": "npm run package:mac:arm64 && npm run package:mac:x64",
     "package:win": "npm run build && electron-builder --win nsis --x64",
-    "smoke:mac": "node scripts/smoke.mjs",
-    "smoke:dmg:mac": "node scripts/smoke-dmg.mjs",
-    "smoke:cli:mac": "node scripts/smoke-cli.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run validate:packaging"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.83.0"
+    "@earendil-works/pi-ai": "0.83.0",
+    "electron-updater": "6.8.9"
   },
   "devDependencies": {
     "@base-ui/react": "^1.6.0",
     "@eslint/js": "10.0.1",
     "@fontsource-variable/inter": "^5.3.0",
     "@lobehub/icons-static-svg": "^1.94.0",
+    "@playwright/test": "1.62.1",
     "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "24.13.3",
@@ -64,9 +73,9 @@
     "shadcn": "^4.16.0",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.65.0",
-    "tw-animate-css": "^1.4.0",
     "vite": "8.1.5",
     "vitest": "4.1.10",
     "wait-on": "9.1.0"
@@ -80,6 +89,8 @@
     },
     "files": [
       "dist/**/*",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
       "package.json"
     ],
     "extraResources": [
@@ -92,11 +103,12 @@
       "category": "public.app-category.utilities",
       "icon": "build/icon.icns",
       "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "electronUpdaterCompatibility": ">=2.16",
       "target": [
         "dir",
-        "dmg"
-      ],
-      "identity": null
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
       "target": [
@@ -112,7 +124,15 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "1MoreBuild",
+        "repo": "Lane",
+        "releaseType": "release"
+      }
+    ]
   },
   "engines": {
     "node": ">=24.0.0 <25"

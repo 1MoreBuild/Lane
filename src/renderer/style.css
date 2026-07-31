@@ -214,6 +214,25 @@
   min-height: 100vh;
 }
 
+.app-frame {
+  position: relative;
+}
+
+.lane-update-control {
+  -webkit-app-region: no-drag;
+  bottom: 1rem;
+  left: 1rem;
+  position: absolute;
+  z-index: 45;
+}
+
+.lane-update-control button {
+  backdrop-filter: blur(18px) saturate(130%);
+  background: color-mix(in oklab, var(--background) 84%, transparent);
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  box-shadow: 0 3px 12px rgb(0 0 0 / 8%);
+}
+
 .lane-page {
   padding: 1rem 1.5rem;
 }

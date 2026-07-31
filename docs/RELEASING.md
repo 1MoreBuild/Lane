@@ -6,29 +6,32 @@ rollback path.
 
 ## Current release boundary
 
-- macOS arm64 builds and launch/CLI smoke tests run on the current Mac.
+- The source repository is public under the permissive 0BSD license.
+- Packaged macOS product E2E runs against a local mock provider on the current
+  Mac.
 - macOS output is unsigned. It is suitable for local testing, not public
   download.
 - Tags matching `v*-test.*` create separate unsigned Apple Silicon and Intel
-  DMGs as a GitHub prerelease. Each package is built, installed, and launched
-  on a native runner before publishing. These builds are for early feedback only.
-- Windows NSIS x64 and arm64 configuration and CI checks exist. Windows runtime
-  behavior has not been verified on a Windows host.
+  DMGs as a GitHub prerelease. Each DMG is installed and driven through the
+  complete provider, gateway, API, security, and restart journey on a native
+  runner before publishing. These builds are for early feedback only.
+- Windows NSIS x64 packaging and packaged-product E2E run on a Windows host for
+  the UI, API, security, persistence, port-conflict, and CLI journeys. Windows
+  Native Messaging is not shipped until Lane has a dedicated binary host.
 - ChatGPT / Codex login requires interactive acceptance with an eligible account.
   Automated tests do not claim that a real account can log in.
 - Automated tests use mock providers and never make a paid generation request.
-- No automatic updater or telemetry service is included.
+- Stable builds use `electron-updater` with public GitHub Releases. Unsigned
+  previews cannot auto-update. No telemetry service is included.
 
 ## Before the first public beta
 
-1. Decide when the source repository should become public. Lane is licensed
-   under MIT; repository visibility remains a separate release decision.
-2. Confirm the product name, `works.earendil.lane` application identifier,
+1. Confirm the product name, `works.earendil.lane` application identifier,
    versioning policy, support address, privacy statement, and release owner.
-3. Protect `main` and require the CI workflow for pull requests.
-4. Add a release workflow that builds only from a version tag and publishes
-   immutable artifacts, SHA-256 checksums, and release notes.
-5. Keep signing credentials in the release environment's secret store. Never
+2. Protect `main` and require the CI workflow for pull requests.
+3. Add the required GitHub Actions secrets for Developer ID signing and Apple
+   notarization. The stable release workflow refuses an unsigned build.
+4. Keep signing credentials in the release environment's secret store. Never
    commit certificates, private keys, API keys, or notarization credentials.
 
 ### Chrome Web Store integration gate
@@ -40,8 +43,8 @@ production extension ID is:
 mdjfkiddlpdgchddcckhcmdjekmmhcgp
 ```
 
-Lane also intentionally allows the key-derived development ID
-`lmpgipgoelkfcbdpboffkbhniifhicdd` for local unpacked builds.
+Transly's checked-in Web Store public key gives local unpacked and store builds
+this same production ID.
 
 Before each public Lane release:
 
@@ -49,7 +52,7 @@ Before each public Lane release:
 2. Confirm the unpacked extension ID and Dashboard item ID still match the
    production ID above.
 3. Confirm Lane's Native Messaging and CORS allowlists contain exactly the
-   production ID and any intentionally supported development IDs.
+   production ID.
 4. Run the Native Messaging allowlist and packaged launch tests.
 
 Never replace the allowlist with a wildcard.
@@ -66,10 +69,17 @@ Public downloads outside the Mac App Store need:
 - Apple notarization for the final DMG and a stapled notarization ticket;
 - verification on a clean Mac with Gatekeeper enabled.
 
-The unsigned local build keeps `build.mac.identity` disabled so ordinary CI and
+Unsigned test scripts disable signing identity discovery so ordinary CI and
 contributors do not accidentally select an unrelated local certificate. The
-release workflow must supply the intended identity and notarization credentials
-explicitly.
+stable release workflow supplies the intended identity and notarization
+credentials explicitly and sets `forceCodeSigning`.
+
+Stable version tags such as `v0.1.0` build separate Apple Silicon and Intel DMG
+and ZIP artifacts, `latest-mac.yml`, checksums, and a GitHub Release. The ZIP and
+metadata are required by the standard Squirrel.Mac update path. Publishing waits
+for signature/notarization checks and installed-product E2E on both Apple
+Silicon and a real Intel runner. Prerelease tags such as
+`v0.1.1-test.1` remain unsigned, manual-install feedback builds.
 
 Verify a release candidate with:
 
@@ -106,15 +116,15 @@ Run from a clean checkout:
 npm ci
 npm audit
 npm run check
-npm run build
-npm run package:mac
-npm run smoke:mac
-npm run smoke:cli:mac
+npm run package:mac:arm64
+LANE_E2E_ARCH=arm64 npm run e2e:dmg:mac
 ```
 
 Then verify:
 
 - the Git tag, app version, release notes, checksums, and artifacts agree;
+- update from the previous signed release downloads, restarts, preserves
+  settings, and can be rolled back manually;
 - the macOS ASAR hash exists in `ElectronAsarIntegrity`;
 - no secret, local path, temporary file, or development server URL is packaged;
 - the gateway still binds only to `127.0.0.1`;
@@ -125,7 +135,7 @@ Then verify:
 - port conflicts and expired credentials produce redacted diagnostics;
 - real OAuth login is performed only as an explicit interactive acceptance
   step;
-- a manual generation smoke request uses a test account/budget and is never
+- a manual generation acceptance request uses a test account/budget and is never
   hidden inside automated CI.
 
 Publish a beta only after the signed artifacts pass these checks on clean target

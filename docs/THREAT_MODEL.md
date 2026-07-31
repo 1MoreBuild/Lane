@@ -35,6 +35,12 @@ disk. Public JSON settings contain no secrets. The renderer preload exposes
 provider actions and public status, not credential reads. Upstream secrets are
 never written into HTTP responses.
 
+Packaged E2E runs use an isolated AES-GCM backend so unsigned automation never
+prompts for or opens a user's Keychain. That backend is accepted only when the
+test profile resolves inside the operating system temporary directory and a
+fresh 32-byte run key is supplied. It cannot be selected for Lane's normal user
+profile.
+
 The Lane client key is different: local clients need it, so the renderer can show
 and copy it. It is still encrypted at rest. Anyone who obtains it can use the
 local gateway while Lane is running.
@@ -60,13 +66,19 @@ not need to infer them.
 The packaged app registers a Chrome Native Messaging manifest containing an
 explicit Transly extension-ID allowlist; wildcards are not accepted. The
 allowlist contains the verified production Web Store ID
-`mdjfkiddlpdgchddcckhcmdjekmmhcgp` and the intentionally retained unpacked
-development ID `lmpgipgoelkfcbdpboffkbhniifhicdd`. Native-host mode checks
+`mdjfkiddlpdgchddcckhcmdjekmmhcgp`. Transly's checked-in Web Store public key
+gives local unpacked and store builds this same ID. Native-host mode checks
 Chrome's caller-origin argument again before using the private control socket.
 On connection, Lane forwards that exact verified origin, adds its canonical
 form to the CORS allowlist, and returns only the Lane API URL, Lane client key,
 and public model IDs. Provider API keys and OAuth tokens never cross this
-boundary.
+boundary. Lane removes persisted browser-extension origins that are no longer
+allowlisted when it loads configuration.
+
+Lane installs this host only on macOS. It does not register an unverified
+Electron GUI executable as a native host on Windows or Linux. Windows support
+is gated on a separate, minimal native-host helper with the same origin checks
+and secret boundary; Linux support is gated on equivalent packaged-product E2E.
 
 For each production release, the Transly manifest public key, unpacked extension
 ID, Dashboard item ID, Native Messaging manifest, and Lane allowlist must still
@@ -92,7 +104,10 @@ interactive acceptance test.
 Logs and client-facing provider errors pass through redaction for bearer values,
 common API-key shapes, JWTs, and token/key fields. Lane does not log request
 bodies or headers. Port conflicts, token refresh failures, and provider failures
-remain distinguishable without including secret material.
+remain distinguishable without including secret material. Lane retries a
+short-lived port conflict on the configured port. If the conflict persists, the
+desktop UI can move to an available port only after confirmation; Lane does not
+terminate the unknown process holding the old port.
 
 Activity is persisted only after redaction. It excludes prompts, model output,
 request headers and bodies, the Lane client key, provider API keys, and OAuth
@@ -109,6 +124,22 @@ before they are returned as base64 JSON. Closing or aborting a downstream
 request aborts the pi-ai upstream request. Lane does not execute model-requested
 tools. Automated tests use a local mock provider and do not send paid requests.
 
+### Updates
+
+Stable packages use `electron-updater` and an explicit public GitHub Releases
+feed. The updater is compiled on only when the signed release workflow sets its
+build marker. Development, E2E, local packages, and unsigned prereleases do
+not check for updates. The client never embeds a GitHub token. The user starts
+the download from Lane's update control; progress is shown in place, and the
+signed update installs and restarts Lane when the download completes.
+
+The release workflow refuses to publish unless macOS signing and notarization
+credentials are present. It verifies the app signature, Gatekeeper assessment,
+stapled notarization ticket, updater metadata, and checksums before creating the
+release. GitHub Actions are pinned to full commit hashes. A compromised release
+workflow, GitHub account, signing identity, or upstream updater dependency
+remains a software-supply-chain risk.
+
 ## Residual risks
 
 - A malicious local process with the Lane client key can spend against connected
@@ -122,5 +153,5 @@ tools. Automated tests use a local mock provider and do not send paid requests.
   key, though not upstream credentials.
 - Model output is untrusted content. Client apps must apply their own escaping,
   authorization, and tool-execution policy.
-- Code signing and notarization are distribution concerns beyond the unsigned
-  local smoke artifact.
+- Unsigned preview builds cannot use the macOS updater and require manual
+  replacement.

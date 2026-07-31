@@ -1,10 +1,14 @@
 import { createServer } from "node:http";
+import { readFile, writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { AppCore } from "../src/main/app-core.ts";
 import { ConfigStore, defaultConfig } from "../src/main/config-store.ts";
 import { SecureCredentialStore } from "../src/main/credential-store.ts";
 import { SecretStore } from "../src/main/secret-store.ts";
-import { TRANSLY_EXTENSION_ORIGINS } from "../src/shared/native-messaging.ts";
+import {
+  TRANSLY_EXTENSION_ORIGINS,
+  TRANSLY_PRODUCTION_EXTENSION_ORIGIN,
+} from "../src/shared/native-messaging.ts";
 import { closeServer, freePort, tempPath, TestSecretBackend } from "./helpers.ts";
 
 async function stores() {
@@ -38,16 +42,39 @@ describe("persistence and lifecycle", () => {
     await expect(
       core.connectBrowserClient("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
     ).rejects.toThrow("not allowed");
-    for (const origin of TRANSLY_EXTENSION_ORIGINS) {
-      const state = await core.connectBrowserClient(origin);
-      expect(state.gateway.running).toBe(true);
-    }
+    const state = await core.connectBrowserClient(TRANSLY_PRODUCTION_EXTENSION_ORIGIN);
+    expect(state.gateway.running).toBe(true);
     const stored = await shared.configStore.load();
     expect(stored.gateway.autoStart).toBe(true);
     expect(stored.gateway.allowedOrigins).toEqual(
       expect.arrayContaining([...TRANSLY_EXTENSION_ORIGINS]),
     );
     await core.shutdown();
+  });
+
+  it("removes browser-extension origins that are no longer allowlisted", async () => {
+    const settingsPath = await tempPath("settings.json");
+    const store = new ConfigStore(settingsPath);
+    await writeFile(settingsPath, JSON.stringify({
+      ...defaultConfig(),
+      gateway: {
+        ...defaultConfig().gateway,
+        allowedOrigins: [
+          "http://127.0.0.1:3210",
+          "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          TRANSLY_PRODUCTION_EXTENSION_ORIGIN,
+        ],
+      },
+    }));
+
+    expect((await store.load()).gateway.allowedOrigins).toEqual([
+      "http://127.0.0.1:3210",
+      TRANSLY_PRODUCTION_EXTENSION_ORIGIN,
+    ]);
+    expect(JSON.parse(await readFile(settingsPath, "utf8")).gateway.allowedOrigins).toEqual([
+      "http://127.0.0.1:3210",
+      TRANSLY_PRODUCTION_EXTENSION_ORIGIN,
+    ]);
   });
 
   it("continues queued settings updates after a failed mutation", async () => {
@@ -146,6 +173,78 @@ describe("persistence and lifecycle", () => {
     expect(state.defaultImageModel).toBeUndefined();
     expect(await shared.credentials.read(providerId)).toBeUndefined();
     await second.shutdown();
+  });
+
+  it("retries a transient port conflict without changing the API port", async () => {
+    const port = await freePort();
+    const blocker = createServer();
+    await new Promise<void>((resolve) => blocker.listen(port, "127.0.0.1", resolve));
+    const shared = await stores();
+    await shared.configStore.save({
+      ...defaultConfig(),
+      gateway: {
+        port,
+        autoStart: false,
+        allowedOrigins: [`http://127.0.0.1:${port}`],
+      },
+    });
+    const core = new AppCore({ ...shared, discover });
+    let blockerClosed = false;
+    try {
+      await core.initialize();
+      setTimeout(() => {
+        blocker.close(() => {
+          blockerClosed = true;
+        });
+      }, 150);
+      const state = await core.startGateway();
+      expect(state.gateway.running).toBe(true);
+      expect(state.gateway.endpoint).toBe(`http://127.0.0.1:${port}`);
+    } finally {
+      await core.shutdown();
+      if (!blockerClosed) await closeServer(blocker);
+    }
+  });
+
+  it("moves to a confirmed alternative port and persists the new API URL", async () => {
+    const originalPort = await freePort();
+    const alternativePort = await freePort();
+    const blocker = createServer();
+    await new Promise<void>((resolve) =>
+      blocker.listen(originalPort, "127.0.0.1", resolve),
+    );
+    const shared = await stores();
+    await shared.configStore.save({
+      ...defaultConfig(),
+      gateway: {
+        port: originalPort,
+        autoStart: false,
+        allowedOrigins: [
+          `http://127.0.0.1:${originalPort}`,
+          `http://localhost:${originalPort}`,
+          TRANSLY_PRODUCTION_EXTENSION_ORIGIN,
+        ],
+      },
+    });
+    const core = new AppCore({ ...shared, discover });
+    try {
+      await core.initialize();
+      const state = await core.startGatewayOnPort(alternativePort);
+      expect(state.gateway.running).toBe(true);
+      expect(state.gateway.endpoint).toBe(`http://127.0.0.1:${alternativePort}`);
+      expect((await shared.configStore.load()).gateway).toEqual({
+        port: alternativePort,
+        autoStart: true,
+        allowedOrigins: [
+          `http://127.0.0.1:${alternativePort}`,
+          `http://localhost:${alternativePort}`,
+          TRANSLY_PRODUCTION_EXTENSION_ORIGIN,
+        ],
+      });
+    } finally {
+      await core.shutdown();
+      await closeServer(blocker);
+    }
   });
 
   it("diagnoses a port conflict during automatic restore", async () => {

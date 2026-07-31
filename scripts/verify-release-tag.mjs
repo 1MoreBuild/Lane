@@ -5,16 +5,28 @@ const pkg = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
 const tag = process.argv[2] ?? process.env.GITHUB_REF_NAME;
+const channel = process.argv[3] ?? "test";
 const expected = `v${pkg.version}`;
 
 if (!tag) {
   throw new Error("Release tag is required");
 }
-if (!/^v\d+\.\d+\.\d+-test\.\d+$/.test(tag)) {
-  throw new Error(`Test release tag must match v<major>.<minor>.<patch>-test.<number>: ${tag}`);
+if (channel !== "test" && channel !== "stable") {
+  throw new Error(`Release channel must be test or stable: ${channel}`);
+}
+const valid =
+  channel === "stable"
+    ? /^v\d+\.\d+\.\d+$/.test(tag)
+    : /^v\d+\.\d+\.\d+-test\.\d+$/.test(tag);
+if (!valid) {
+  const format =
+    channel === "stable"
+      ? "v<major>.<minor>.<patch>"
+      : "v<major>.<minor>.<patch>-test.<number>";
+  throw new Error(`${channel} release tag must match ${format}: ${tag}`);
 }
 if (tag !== expected) {
   throw new Error(`Release tag ${tag} does not match package version ${expected}`);
 }
 
-console.log(`Release tag verified: ${tag}`);
+console.log(`${channel} release tag verified: ${tag}`);

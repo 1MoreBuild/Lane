@@ -10,7 +10,6 @@ import { NativeMessagingInstaller } from "../src/main/native-messaging-install.t
 import {
   LANE_NATIVE_HOST_NAME,
   LANE_NATIVE_PROTOCOL_VERSION,
-  TRANSLY_DEVELOPMENT_EXTENSION_ID,
   TRANSLY_EXTENSION_ORIGINS,
   TRANSLY_NATIVE_ALLOWED_ORIGINS,
   TRANSLY_PRODUCTION_EXTENSION_ID,
@@ -74,10 +73,12 @@ describe("Lane native messaging", () => {
       type: "connect",
     }));
 
+    const onError = vi.fn();
     await expect(runLaneNativeHost({
       callerOrigin: TRANSLY_NATIVE_ALLOWED_ORIGINS[0],
       stdin: input,
       stdout: output,
+      onError,
       connect: async () => {
         throw new Error("connect ENOENT /Users/example/private/lane-control.sock");
       },
@@ -89,6 +90,11 @@ describe("Lane native messaging", () => {
         message: "Lane is unavailable.",
       },
     });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "connect ENOENT /Users/example/private/lane-control.sock",
+      }),
+    );
   });
 
   it("rejects every caller except the registered Transly extension", async () => {
@@ -111,13 +117,11 @@ describe("Lane native messaging", () => {
 
   it("installs a Chrome host manifest scoped to the explicit Transly allowlist", async () => {
     const homePath = dirname(await tempPath("home-marker"));
-    const userDataPath = await tempPath("user-data");
     const executablePath = "/Applications/Lane.app/Contents/MacOS/Lane";
     const installer = new NativeMessagingInstaller({
       executablePath,
       platform: "darwin",
       homePath,
-      userDataPath,
     });
     const state = await installer.install();
     expect(state.installed).toBe(true);
@@ -134,11 +138,21 @@ describe("Lane native messaging", () => {
     });
     expect(TRANSLY_EXTENSION_ORIGINS).toEqual([
       `chrome-extension://${TRANSLY_PRODUCTION_EXTENSION_ID}`,
-      `chrome-extension://${TRANSLY_DEVELOPMENT_EXTENSION_ID}`,
     ]);
     expect(TRANSLY_NATIVE_ALLOWED_ORIGINS).toEqual([
       `chrome-extension://${TRANSLY_PRODUCTION_EXTENSION_ID}/`,
-      `chrome-extension://${TRANSLY_DEVELOPMENT_EXTENSION_ID}/`,
     ]);
+  });
+
+  it("does not register the Electron GUI executable as a Windows native host", async () => {
+    const installer = new NativeMessagingInstaller({
+      executablePath: "C:\\Program Files\\Lane\\Lane.exe",
+      platform: "win32",
+    });
+
+    await expect(installer.install()).resolves.toEqual({
+      installed: false,
+      error: "Native messaging is not supported on this platform.",
+    });
   });
 });

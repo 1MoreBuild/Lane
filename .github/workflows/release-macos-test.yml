@@ -6,7 +6,7 @@ on:
     tags: ["v*-test.*"]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: macos-test-release-${{ github.ref }}
@@ -27,8 +27,8 @@ jobs:
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
@@ -45,17 +45,19 @@ jobs:
       - name: Build unsigned ${{ matrix.name }} DMG
         run: npm run package:mac:${{ matrix.arch }}
 
-      - name: Smoke test packaged app and CLI
+      - name: Run installed product E2E
         env:
-          LANE_SMOKE_ARCH: ${{ matrix.arch }}
-        run: |
-          npm run smoke:mac
-          npm run smoke:cli:mac
-
-      - name: Install and launch from DMG
-        env:
-          LANE_SMOKE_ARCH: ${{ matrix.arch }}
-        run: npm run smoke:dmg:mac
+          LANE_E2E_ARCH: ${{ matrix.arch }}
+        run: npm run e2e:dmg:mac
+      - name: Upload E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Lane-E2E-${{ matrix.arch }}-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results/e2e
+          if-no-files-found: ignore
 
       - name: Create checksum
         run: |
@@ -64,9 +66,10 @@ jobs:
             > "SHA256SUMS-${{ matrix.arch }}"
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v7
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: Lane-${{ github.ref_name }}-macOS-${{ matrix.arch }}-test
+          name: Lane-macOS-${{ matrix.arch }}-test-${{ github.run_id }}
           path: |
             release/*-mac-${{ matrix.arch }}.dmg
             release/SHA256SUMS-${{ matrix.arch }}
@@ -77,11 +80,13 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: Lane-${{ github.ref_name }}-macOS-*-test
+          pattern: Lane-macOS-*-test-${{ github.run_id }}
           path: release
           merge-multiple: true
 
