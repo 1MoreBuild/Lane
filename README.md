@@ -13,6 +13,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/1MoreBuild/Lane/releases"><img src="https://img.shields.io/github/v/release/1MoreBuild/Lane?include_prereleases&style=flat-square&color=171717" alt="Latest release"></a>
+  <a href="https://github.com/1MoreBuild/Lane/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/1MoreBuild/Lane/ci.yml?branch=main&style=flat-square&label=checks" alt="Build status"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-171717?style=flat-square" alt="MIT license"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/1MoreBuild/Lane/releases"><strong>Download the macOS preview →</strong></a>
 </p>
 
@@ -24,10 +30,10 @@ Lane is a local AI gateway for macOS. Connect ChatGPT / Codex with OAuth or add
 a provider API key, then use one OpenAI-compatible endpoint from any local
 client.
 
-Lane is a gateway, not an agent. It does not add hidden instructions, run an
-agent loop, or execute tool calls.
+Lane is a gateway, not an agent. It never adds hidden instructions, runs an
+agent loop, or executes tool calls.
 
-## One connection, any local client
+## Why Lane
 
 - Chat, Responses, and image generation through one API.
 - ChatGPT / Codex, OpenAI, Anthropic, OpenRouter, and custom endpoints.
@@ -38,16 +44,23 @@ agent loop, or execute tool calls.
 
 ## Download
 
-Lane is an unsigned developer preview for early testing.
+Install the current preview with Homebrew:
+
+```bash
+brew install --cask 1MoreBuild/tap/lane
+```
+
+Or download a DMG from
+[GitHub Releases](https://github.com/1MoreBuild/Lane/releases):
 
 | Mac | Build |
 | --- | --- |
 | Apple Silicon (M1 or newer) | `Lane-…-mac-arm64.dmg` |
 | Intel | `Lane-…-mac-x64.dmg` |
 
-Get the right DMG from [GitHub Releases](https://github.com/1MoreBuild/Lane/releases)
-and follow the [installation guide](docs/TEST_BUILDS.md). Never disable
-Gatekeeper globally.
+Lane is currently an unsigned developer preview. Homebrew and direct downloads
+install the same build and do not bypass Gatekeeper. Follow the
+[installation guide](docs/TEST_BUILDS.md); never disable Gatekeeper globally.
 
 Unsigned previews update manually. Signed releases show an update control in
 the window; click it to download in place and restart into the new version.
@@ -122,4 +135,4 @@ Lane is independent and is not part of Transly.
 
 ## License
 
-[MIT](LICENSE) © 2026 Lane contributors
+[MIT](LICENSE) • Haitian ([1MoreBuild](https://github.com/1MoreBuild))
