@@ -4,6 +4,7 @@ import { AppCore } from "../src/main/app-core.ts";
 import { ConfigStore, defaultConfig } from "../src/main/config-store.ts";
 import { SecureCredentialStore } from "../src/main/credential-store.ts";
 import { SecretStore } from "../src/main/secret-store.ts";
+import { TRANSLY_EXTENSION_ORIGINS } from "../src/shared/native-messaging.ts";
 import { closeServer, freePort, tempPath, TestSecretBackend } from "./helpers.ts";
 
 async function stores() {
@@ -21,6 +22,31 @@ const discover = async () => [
 ];
 
 describe("persistence and lifecycle", () => {
+  it("authorizes a browser extension, starts the gateway, and persists automatic restore", async () => {
+    const port = await freePort();
+    const shared = await stores();
+    await shared.configStore.save({
+      ...defaultConfig(),
+      gateway: {
+        port,
+        autoStart: false,
+        allowedOrigins: [`http://127.0.0.1:${port}`],
+      },
+    });
+    const core = new AppCore({ ...shared, discover });
+    await core.initialize();
+    await expect(
+      core.connectBrowserClient("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+    ).rejects.toThrow("not allowed");
+    const origin = TRANSLY_EXTENSION_ORIGINS[0];
+    const state = await core.connectBrowserClient(origin);
+    expect(state.gateway.running).toBe(true);
+    const stored = await shared.configStore.load();
+    expect(stored.gateway.autoStart).toBe(true);
+    expect(stored.gateway.allowedOrigins).toContain(origin);
+    await core.shutdown();
+  });
+
   it("continues queued settings updates after a failed mutation", async () => {
     const settingsPath = await tempPath("settings-queue.json");
     const store = new ConfigStore(settingsPath);

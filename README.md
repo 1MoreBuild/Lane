@@ -44,6 +44,8 @@ flowchart LR
   key, and never exposes upstream credentials to clients.
 - **Built for people and agents.** Control Lane from the desktop, menu bar, or
   the optional `lane` command.
+- **Automatic Transly connection.** The Transly Chrome extension can connect to
+  Lane without copying an endpoint, client key, or model name.
 
 | Connection | Authentication | Current support |
 | --- | --- | --- |
@@ -58,11 +60,17 @@ flowchart LR
 > Lane is currently a developer preview. The macOS build is unsigned and is
 > intended for local testing, not public distribution.
 
+Unsigned test builds are published as GitHub prereleases. They contain a
+universal app for Apple Silicon and Intel Macs. Follow the
+[test-build installation guide](docs/TEST_BUILDS.md); never disable Gatekeeper
+globally.
+
 1. Start Lane with `npm run dev`, or open a locally packaged build.
 2. Choose **Add provider** and connect an account.
 3. Select the default chat model and, when available, an image model.
-4. Start the gateway.
-5. Copy the API base URL and Lane client key into your client.
+4. Open a client. Lane starts the gateway when an approved client connects.
+5. Transly connects automatically. For other clients, copy the API base URL and
+   Lane client key from Lane.
 
 Check the connection:
 
@@ -172,6 +180,16 @@ ChatGPT / Codex sign-in, but the user must complete the browser flow.
 
 The Lane client key is visible because local clients need it. Treat it like a
 password. Read the [threat model](docs/THREAT_MODEL.md) for the full boundary.
+
+Lane registers a Chrome Native Messaging host for Transly when the packaged app
+starts. Chrome permits only explicitly allowlisted Transly extension IDs to call
+that host. The current allowlist contains the ID derived from Transly's
+development manifest key; it is not yet confirmed as the future Chrome Web
+Store item ID. Before a public release, create the Web Store item, copy its
+public key into Transly's manifest, verify that the unpacked ID matches the
+Dashboard item ID, and update Lane's allowlist if needed. Wildcards are never
+accepted. The host returns the Lane URL, client key, and public model list; it
+never returns a provider API key or OAuth token.
 
 ## Compatibility boundary
 

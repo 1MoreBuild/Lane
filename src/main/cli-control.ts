@@ -20,7 +20,8 @@ export type CliControlCommand =
   | "providers-remove"
   | "providers-oauth"
   | "default-model-set"
-  | "default-image-model-set";
+  | "default-image-model-set"
+  | "browser-client-connect";
 
 export interface CliControlRequest {
   version: typeof CLI_PROTOCOL_VERSION;
@@ -29,6 +30,7 @@ export interface CliControlRequest {
     provider?: AddProviderInput;
     providerId?: string;
     modelId?: string;
+    origin?: string;
   };
 }
 
@@ -73,6 +75,7 @@ function isCommand(value: unknown): value is CliControlCommand {
     "providers-oauth",
     "default-model-set",
     "default-image-model-set",
+    "browser-client-connect",
   ].includes(String(value));
 }
 
@@ -110,6 +113,12 @@ function parseRequest(value: unknown): CliControlRequest {
     (typeof params?.modelId !== "string" || !params.modelId)
   ) {
     throw new Error("Model id is required");
+  }
+  if (
+    request.command === "browser-client-connect" &&
+    (typeof params?.origin !== "string" || !params.origin)
+  ) {
+    throw new Error("Browser extension origin is required");
   }
   return {
     version: CLI_PROTOCOL_VERSION,

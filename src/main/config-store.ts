@@ -54,6 +54,7 @@ export function validateConfig(value: unknown): LaneConfig {
     !Array.isArray(origins) ||
     origins.some((origin) => {
       if (typeof origin !== "string" || origin === "*") return true;
+      if (/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) return false;
       try {
         const url = new URL(origin);
         return (

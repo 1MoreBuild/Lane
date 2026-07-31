@@ -8,6 +8,10 @@ import type {
   ProviderKind,
   ProviderStatus,
 } from "../shared/contracts.ts";
+import {
+  isAllowedTranslyExtensionOrigin,
+  TRANSLY_EXTENSION_ORIGINS,
+} from "../shared/native-messaging.ts";
 import { ConfigStore } from "./config-store.ts";
 import type { SecureCredentialStore } from "./credential-store.ts";
 import { GatewayServer, RuntimeHolder } from "./gateway.ts";
@@ -294,6 +298,39 @@ export class AppCore {
       throw error;
     }
     this.logger.info(`Gateway started on ${this.gateway.getEndpoint(config.gateway.port)}`);
+    return await this.getState();
+  }
+
+  async connectBrowserClient(origin: string): Promise<LaneState> {
+    if (!isAllowedTranslyExtensionOrigin(origin)) {
+      throw new Error("Browser extension is not allowed");
+    }
+    const canonicalOrigin = TRANSLY_EXTENSION_ORIGINS.find(
+      (allowedOrigin) => allowedOrigin === origin || `${allowedOrigin}/` === origin,
+    )!;
+    const { config, clientKey } = this.requireInitialized();
+    const alreadyAllowed = config.gateway.allowedOrigins.includes(canonicalOrigin);
+    const allowedOrigins = alreadyAllowed
+      ? config.gateway.allowedOrigins
+      : [...config.gateway.allowedOrigins, canonicalOrigin];
+    let nextConfig = config;
+    if (!alreadyAllowed) {
+      nextConfig = {
+        ...config,
+        gateway: { ...config.gateway, allowedOrigins },
+      };
+      await this.persist(nextConfig);
+    }
+    this.gateway.setAllowedOrigins(allowedOrigins);
+    if (!this.gateway.isRunning()) {
+      await this.gateway.start(nextConfig.gateway, clientKey);
+      nextConfig = {
+        ...nextConfig,
+        gateway: { ...nextConfig.gateway, autoStart: true },
+      };
+      await this.persist(nextConfig);
+      this.logger.info("Gateway started for an approved browser extension");
+    }
     return await this.getState();
   }
 
