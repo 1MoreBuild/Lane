@@ -100,6 +100,13 @@ if (
 if (!releaseWorkflow.includes('tags: ["v*-test.*"]')) {
   failures.push("test release workflow lacks a narrow tag trigger");
 }
+if (
+  !releaseWorkflow.includes("confirm_unsigned:") ||
+  !releaseWorkflow.includes('test "$CONFIRM_UNSIGNED" = "UNSIGNED"') ||
+  !releaseWorkflow.includes('verify-release-tag.mjs "$RELEASE_TAG" preview')
+) {
+  failures.push("manual unsigned preview publishing lacks an explicit confirmation gate");
+}
 if (!releaseWorkflow.includes("publish:\n") || !releaseWorkflow.includes("      contents: write")) {
   failures.push("release publish job cannot create GitHub Releases");
 }
@@ -111,6 +118,9 @@ if (!releaseWorkflow.includes("macos-latest") || !releaseWorkflow.includes("maco
 }
 if (!releaseWorkflow.includes("gh release create")) {
   failures.push("test release workflow does not publish a GitHub prerelease");
+}
+if (!releaseWorkflow.includes("--prerelease")) {
+  failures.push("unsigned macOS releases must remain GitHub prereleases");
 }
 if (!stableReleaseWorkflow.includes("npm run package:mac:release")) {
   failures.push("stable release workflow does not build updater artifacts");
