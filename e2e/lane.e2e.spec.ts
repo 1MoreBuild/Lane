@@ -432,10 +432,10 @@ test.describe("Lane packaged product journeys", () => {
       .toBeGreaterThan(0);
   });
 
-  test("serves the packaged CLI and approved browser extension", async () => {
+  test("serves the packaged CLI", async () => {
     const page = context.session!.page;
     await connectMockProvider(page, context.upstream);
-    const { apiBaseUrl, clientKey } = await startGateway(page);
+    const { apiBaseUrl } = await startGateway(page);
 
     const cli = cliExecutable();
     const status = await runPackagedProcess(
@@ -480,6 +480,17 @@ test.describe("Lane packaged product journeys", () => {
         expect.objectContaining({ id: expect.stringMatching(/\/mock-image$/) }),
       ]),
     );
+  });
+
+  test("serves the approved browser extension through the packaged native host", async () => {
+    test.skip(
+      process.platform === "win32",
+      "Windows Native Messaging requires a dedicated binary host and is not shipped yet",
+    );
+
+    const page = context.session!.page;
+    await connectMockProvider(page, context.upstream);
+    const { apiBaseUrl, clientKey } = await startGateway(page);
 
     const request = nativeFrame({
       protocolVersion: LANE_NATIVE_PROTOCOL_VERSION,
@@ -504,10 +515,10 @@ test.describe("Lane packaged product journeys", () => {
         apiUrl: apiBaseUrl,
         apiKey: clientKey,
         models: expect.arrayContaining([
-          statusData.default_model,
+          expect.stringMatching(/\/mock-model$/),
           expect.stringMatching(/\/mock-image$/),
         ]),
-        defaultModel: statusData.default_model,
+        defaultModel: expect.stringMatching(/\/mock-model$/),
         protocol: "responses",
       },
     });

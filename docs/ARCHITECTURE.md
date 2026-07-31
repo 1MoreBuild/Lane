@@ -62,9 +62,13 @@ AppCore authorizes the Transly origin and starts the gateway
 Transly receives only API URL, Lane client key, and public model IDs
 ```
 
-The native host manifest is installed in Chrome's per-user directory on macOS
-and Linux, and registered under the current user on Windows. Manual provider
-configuration remains available in Transly when Lane is not installed.
+The native host manifest is installed in Chrome's per-user directory on macOS.
+Native Messaging is not shipped on Windows or Linux. Chromium requires a
+byte-exact binary stdout channel, while the Electron GUI executable can prefix
+stdout on Windows; Linux has no packaged-product verification yet. Supporting
+either platform requires a dedicated native-host helper rather than registering
+an unverified GUI executable. Manual provider configuration remains available
+in Transly when Lane is not installed.
 
 ## Main components
 
@@ -134,11 +138,13 @@ Playwright launches the packaged application with a fresh temporary user
 profile and a local mock provider. The suite connects that provider through the
 visible UI, selects a model, starts the gateway, calls every public API in
 streaming and non-streaming modes, checks authentication and CORS failures,
-aborts an in-flight request, exercises the packaged CLI and approved Native
-Messaging host, restarts the real application, and removes the provider. macOS
-release jobs install the DMG first and run the same journey against the
-installed app on native Apple Silicon and Intel runners. Windows CI runs the
-journey against the packaged Windows application.
+aborts an in-flight request, exercises the packaged CLI, restarts the real
+application, and removes the provider. On supported platforms it also exercises
+the approved Native Messaging host. macOS release jobs install the DMG first
+and run the same journey against the installed app on native Apple Silicon and
+Intel runners. Windows CI runs the UI, API, security, persistence, port, and CLI
+journeys against the packaged Windows application; Native Messaging remains
+disabled until Lane has a dedicated Windows host.
 
 E2E credentials use a per-run AES-GCM key and a user-data directory that must
 resolve inside the operating system's temporary directory. The production

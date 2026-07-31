@@ -75,6 +75,11 @@ and public model IDs. Provider API keys and OAuth tokens never cross this
 boundary. Lane removes persisted browser-extension origins that are no longer
 allowlisted when it loads configuration.
 
+Lane installs this host only on macOS. It does not register an unverified
+Electron GUI executable as a native host on Windows or Linux. Windows support
+is gated on a separate, minimal native-host helper with the same origin checks
+and secret boundary; Linux support is gated on equivalent packaged-product E2E.
+
 For each production release, the Transly manifest public key, unpacked extension
 ID, Dashboard item ID, Native Messaging manifest, and Lane allowlist must still
 agree.

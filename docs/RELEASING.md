@@ -15,8 +15,9 @@ rollback path.
   DMGs as a GitHub prerelease. Each DMG is installed and driven through the
   complete provider, gateway, API, security, and restart journey on a native
   runner before publishing. These builds are for early feedback only.
-- Windows NSIS x64 and arm64 configuration and CI checks exist. Windows runtime
-  behavior has not been verified on a Windows host.
+- Windows NSIS x64 packaging and packaged-product E2E run on a Windows host for
+  the UI, API, security, persistence, port-conflict, and CLI journeys. Windows
+  Native Messaging is not shipped until Lane has a dedicated binary host.
 - ChatGPT / Codex login requires interactive acceptance with an eligible account.
   Automated tests do not claim that a real account can log in.
 - Automated tests use mock providers and never make a paid generation request.

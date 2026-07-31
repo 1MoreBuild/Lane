@@ -664,10 +664,9 @@ async function boot(): Promise<void> {
   });
   const initialState = await core.getState();
   await startCliControl(core);
-  if (!process.defaultApp && !e2eMode) {
+  if (!process.defaultApp && !e2eMode && process.platform === "darwin") {
     const nativeMessaging = new NativeMessagingInstaller({
       executablePath: process.execPath,
-      userDataPath: userData,
     });
     try {
       const integration = await nativeMessaging.install();
