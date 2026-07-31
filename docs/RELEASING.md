@@ -73,8 +73,10 @@ credentials explicitly and sets `forceCodeSigning`.
 
 Stable version tags such as `v0.1.0` build separate Apple Silicon and Intel DMG
 and ZIP artifacts, `latest-mac.yml`, checksums, and a GitHub Release. The ZIP and
-metadata are required by the standard Squirrel.Mac update path. Prerelease tags
-such as `v0.1.1-test.1` remain unsigned, manual-install feedback builds.
+metadata are required by the standard Squirrel.Mac update path. Publishing waits
+for signature/notarization checks, full Apple Silicon smoke tests, and an
+install-and-launch smoke on a real Intel runner. Prerelease tags such as
+`v0.1.1-test.1` remain unsigned, manual-install feedback builds.
 
 Verify a release candidate with:
 

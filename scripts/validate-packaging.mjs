@@ -24,6 +24,9 @@ if (pkg.build?.disableAsarIntegrity === true) {
 }
 if (!pkg.build?.mac?.target?.includes("dmg")) failures.push("missing macOS DMG target");
 if (!pkg.build?.mac?.target?.includes("zip")) failures.push("macOS auto-update ZIP target missing");
+if (pkg.build?.mac?.electronUpdaterCompatibility !== ">=2.16") {
+  failures.push("macOS updater metadata must use the architecture-aware files format");
+}
 if (!pkg.scripts?.["package:mac:arm64"]?.includes("--arm64")) {
   failures.push("missing Apple Silicon macOS test package script");
 }
@@ -107,6 +110,38 @@ if (
   !stableReleaseWorkflow.includes("xcrun stapler validate")
 ) {
   failures.push("stable release workflow does not verify signing and notarization");
+}
+for (const secret of [
+  "MAC_CSC_LINK",
+  "MAC_CSC_KEY_PASSWORD",
+  "APPLE_ID",
+  "APPLE_APP_SPECIFIC_PASSWORD",
+  "APPLE_TEAM_ID",
+]) {
+  if (!stableReleaseWorkflow.includes(`secrets.${secret}`)) {
+    failures.push(`stable release workflow is missing ${secret}`);
+  }
+}
+if (
+  !stableReleaseWorkflow.includes("runs-on: macos-15-intel") ||
+  !stableReleaseWorkflow.includes("LANE_SMOKE_ARCH: x64") ||
+  !stableReleaseWorkflow.includes("needs: [build, intel-smoke]")
+) {
+  failures.push("stable release can publish without a real Intel DMG launch smoke");
+}
+const stablePublish = stableReleaseWorkflow.indexOf("gh release create");
+for (const requiredGate of [
+  "codesign --verify",
+  "xcrun stapler validate",
+  "npm run smoke:mac",
+  "npm run smoke:cli:mac",
+  "npm run smoke:dmg:mac",
+  "shasum -a 256",
+]) {
+  const gateIndex = stableReleaseWorkflow.indexOf(requiredGate);
+  if (gateIndex === -1 || stablePublish === -1 || gateIndex > stablePublish) {
+    failures.push(`stable release publishes before ${requiredGate}`);
+  }
 }
 if (failures.length > 0) {
   throw new Error(`Packaging validation failed: ${failures.join(", ")}`);

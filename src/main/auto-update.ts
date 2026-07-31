@@ -34,6 +34,7 @@ export class LaneAutoUpdate {
   private started = false;
   private checking = false;
   private downloading = false;
+  private installing = false;
   private availableVersion: string | undefined;
 
   constructor(options: LaneAutoUpdateOptions) {
@@ -53,9 +54,18 @@ export class LaneAutoUpdate {
     if (this.started) return;
     this.started = true;
     this.updater.autoDownload = false;
-    this.updater.autoInstallOnAppQuit = false;
+    // The click is the user's consent to download. Keeping the standard
+    // install-on-quit fallback means a downloaded update is not stranded if an
+    // immediate relaunch is interrupted.
+    this.updater.autoInstallOnAppQuit = true;
     this.updater.autoRunAppAfterInstall = true;
     this.updater.allowPrerelease = false;
+    this.updater.logger = {
+      info: (message) => this.logger.info(`Updater: ${String(message)}`),
+      warn: (message) => this.logger.warn(`Updater: ${String(message)}`),
+      error: (message) => this.logger.warn(`Updater: ${String(message)}`),
+      debug: () => undefined,
+    };
 
     this.updater.on("update-available", (info) => {
       this.availableVersion = info.version;
@@ -63,6 +73,12 @@ export class LaneAutoUpdate {
     });
     this.updater.on("update-downloaded", (info) => {
       void this.install(info.version);
+    });
+    this.updater.on("update-cancelled", (info) => {
+      this.downloading = false;
+      this.availableVersion = info.version;
+      this.logger.warn(`Lane ${info.version} update download was cancelled`);
+      this.onStateChanged({ status: "available", version: info.version });
     });
     this.updater.on("download-progress", (progress) => {
       if (!this.availableVersion) return;
@@ -78,7 +94,8 @@ export class LaneAutoUpdate {
       this.onStateChanged({ status: "idle" });
     });
     this.updater.on("error", (error) => {
-      this.logger.warn(`Automatic update check failed: ${error.message}`);
+      if (!this.installing) this.downloading = false;
+      this.logger.warn(`Automatic update error: ${error.message}`);
       if (this.availableVersion) {
         this.onStateChanged({
           status: "available",
@@ -92,7 +109,7 @@ export class LaneAutoUpdate {
   }
 
   async checkNow(): Promise<void> {
-    if (!this.started || this.checking || this.downloading) return;
+    if (!this.started || this.checking || this.downloading || this.installing) return;
     this.checking = true;
     try {
       await this.updater.checkForUpdates();
@@ -104,7 +121,7 @@ export class LaneAutoUpdate {
   }
 
   async downloadAvailable(): Promise<void> {
-    if (!this.availableVersion || this.downloading) return;
+    if (!this.availableVersion || this.downloading || this.installing) return;
     const version = this.availableVersion;
     this.downloading = true;
     this.onStateChanged({ status: "downloading", version, percent: 0 });
@@ -115,17 +132,21 @@ export class LaneAutoUpdate {
       this.logger.warn(`Automatic update download failed: ${String(error)}`);
       this.onStateChanged({ status: "available", version });
     } finally {
-      this.downloading = false;
+      if (!this.installing) this.downloading = false;
     }
   }
 
   private async install(version: string): Promise<void> {
+    if (this.installing) return;
+    this.installing = true;
     try {
       this.onStateChanged({ status: "downloading", version, percent: 100 });
       this.logger.info(`Installing Lane ${version}`);
       await this.prepareToInstall();
       this.updater.quitAndInstall(false, true);
     } catch (error) {
+      this.installing = false;
+      this.downloading = false;
       this.logger.warn(`Automatic update install failed: ${String(error)}`);
       this.onStateChanged({ status: "available", version });
     }

@@ -98,7 +98,9 @@ configuration remains available in Transly when Lane is not installed.
   update appears as a small window utility; clicking it replaces the icon with
   download progress, then installs and restarts Lane. A build-time release
   marker is set only by the signing workflow; development, local package,
-  smoke, and prerelease builds never contact the update feed.
+  smoke, and prerelease builds never contact the update feed. A completed
+  download also retains the standard install-on-quit fallback if the immediate
+  relaunch is interrupted.
 - The protocol module maps both OpenAI Responses and Chat Completions onto the
   same canonical request/event model.
 - Image generation has its own canonical one-shot request/result model. It uses

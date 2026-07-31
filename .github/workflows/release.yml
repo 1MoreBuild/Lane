@@ -12,12 +12,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  macos:
-    name: Signed macOS release
+  build:
+    name: Build signed macOS release
     if: ${{ !contains(github.ref_name, '-') }}
     runs-on: macos-latest
-    permissions:
-      contents: write
     env:
       CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
@@ -70,6 +68,48 @@ jobs:
           cd release
           shasum -a 256 Lane-*-mac-*.dmg Lane-*-mac-*.zip > SHA256SUMS
 
+      - name: Stage verified release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Lane-${{ github.ref_name }}-stable
+          path: |
+            release/Lane-*-mac-*.dmg
+            release/Lane-*-mac-*.zip
+            release/latest-mac.yml
+            release/*.blockmap
+            release/SHA256SUMS
+          if-no-files-found: error
+
+  intel-smoke:
+    name: Install and launch Intel release
+    needs: build
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: Lane-${{ github.ref_name }}-stable
+          path: release
+      - name: Install and launch Intel DMG
+        env:
+          LANE_SMOKE_ARCH: x64
+        run: npm run smoke:dmg:mac
+
+  publish:
+    name: Publish stable release
+    needs: [build, intel-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: Lane-${{ github.ref_name }}-stable
+          path: release
       - name: Publish stable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -97,6 +97,7 @@
       "category": "public.app-category.utilities",
       "icon": "build/icon.icns",
       "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "electronUpdaterCompatibility": ">=2.16",
       "target": [
         "dir",
         "dmg",

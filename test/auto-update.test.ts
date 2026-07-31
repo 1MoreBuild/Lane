@@ -10,7 +10,7 @@ class FakeUpdater extends EventEmitter {
   autoRunAppAfterInstall = false;
   allowPrerelease = true;
   checkForUpdates = vi.fn(async () => null);
-  downloadUpdate = vi.fn(async () => []);
+  downloadUpdate = vi.fn(async (): Promise<string[]> => []);
   quitAndInstall = vi.fn();
 }
 
@@ -45,7 +45,7 @@ describe("automatic updates", () => {
     await vi.waitFor(() => expect(fake.checkForUpdates).toHaveBeenCalledOnce());
 
     expect(fake.autoDownload).toBe(false);
-    expect(fake.autoInstallOnAppQuit).toBe(false);
+    expect(fake.autoInstallOnAppQuit).toBe(true);
     expect(fake.autoRunAppAfterInstall).toBe(true);
     expect(fake.allowPrerelease).toBe(false);
     expect(delays).toEqual([15_000, 1_800_000]);
@@ -97,6 +97,129 @@ describe("automatic updates", () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(fake.downloadUpdate).not.toHaveBeenCalled();
+    expect(fake.quitAndInstall).not.toHaveBeenCalled();
+  });
+
+  it("coalesces repeated download clicks while one download is active", async () => {
+    const fake = new FakeUpdater();
+    let finishDownload: (() => void) | undefined;
+    fake.downloadUpdate.mockImplementationOnce(
+      () =>
+        new Promise<string[]>((resolve) => {
+          finishDownload = () => resolve([]);
+        }),
+    );
+    const controller = new LaneAutoUpdate({
+      updater: updater(fake),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      onStateChanged: vi.fn(),
+      prepareToInstall: vi.fn(),
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    controller.start();
+    fake.emit("update-available", { version: "0.2.0" });
+
+    const first = controller.downloadAvailable();
+    const second = controller.downloadAvailable();
+    await vi.waitFor(() => expect(fake.downloadUpdate).toHaveBeenCalledOnce());
+    finishDownload?.();
+    await Promise.all([first, second]);
+
+    expect(fake.downloadUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("returns a cancelled download to a retryable available state", async () => {
+    const fake = new FakeUpdater();
+    const states: LaneUpdateState[] = [];
+    const controller = new LaneAutoUpdate({
+      updater: updater(fake),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      onStateChanged: (state) => states.push(state),
+      prepareToInstall: vi.fn(),
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    controller.start();
+    fake.emit("update-available", { version: "0.2.0" });
+    fake.emit("update-cancelled", { version: "0.2.0" });
+    await controller.downloadAvailable();
+
+    expect(states.at(-1)).toEqual({
+      status: "downloading",
+      version: "0.2.0",
+      percent: 0,
+    });
+    expect(fake.downloadUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("returns a failed download to a retryable available state", async () => {
+    const fake = new FakeUpdater();
+    fake.downloadUpdate.mockRejectedValueOnce(new Error("connection reset"));
+    const states: LaneUpdateState[] = [];
+    const controller = new LaneAutoUpdate({
+      updater: updater(fake),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      onStateChanged: (state) => states.push(state),
+      prepareToInstall: vi.fn(),
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    controller.start();
+    fake.emit("update-available", { version: "0.2.0" });
+    await controller.downloadAvailable();
+    await controller.downloadAvailable();
+
+    expect(states).toContainEqual({
+      status: "available",
+      version: "0.2.0",
+    });
+    expect(fake.downloadUpdate).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not install twice when the downloaded event is repeated", async () => {
+    const fake = new FakeUpdater();
+    const prepareToInstall = vi.fn(async () => undefined);
+    const controller = new LaneAutoUpdate({
+      updater: updater(fake),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      onStateChanged: vi.fn(),
+      prepareToInstall,
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    controller.start();
+    fake.emit("update-available", { version: "0.2.0" });
+    fake.emit("update-downloaded", { version: "0.2.0" });
+    fake.emit("update-downloaded", { version: "0.2.0" });
+    await vi.waitFor(() => expect(fake.quitAndInstall).toHaveBeenCalledOnce());
+
+    expect(prepareToInstall).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a failed install retryable and does not ask the updater to quit", async () => {
+    const fake = new FakeUpdater();
+    const states: LaneUpdateState[] = [];
+    const controller = new LaneAutoUpdate({
+      updater: updater(fake),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      onStateChanged: (state) => states.push(state),
+      prepareToInstall: vi.fn(async () => {
+        throw new Error("gateway did not stop");
+      }),
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    controller.start();
+    fake.emit("update-available", { version: "0.2.0" });
+    fake.emit("update-downloaded", { version: "0.2.0" });
+    await vi.waitFor(() =>
+      expect(states.at(-1)).toEqual({
+        status: "available",
+        version: "0.2.0",
+      }),
+    );
+
     expect(fake.quitAndInstall).not.toHaveBeenCalled();
   });
 
