@@ -2,9 +2,10 @@ node_modules/
 dist/
 release/
 coverage/
+playwright-report/
+test-results/
 *.log
 .DS_Store
-.lane-smoke-ready
 .env
 .env.*
 !.env.example

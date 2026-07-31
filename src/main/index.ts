@@ -1,8 +1,8 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   app,
@@ -42,6 +42,7 @@ import { CliInstaller } from "./cli-install.ts";
 import { ConfigStore } from "./config-store.ts";
 import { SecureCredentialStore } from "./credential-store.ts";
 import { ElectronSecretBackend } from "./electron-secret-backend.ts";
+import { E2ESecretBackend } from "./e2e-secret-backend.ts";
 import { LaneLogger, redact } from "./logger.ts";
 import { runLaneNativeHost } from "./native-messaging.ts";
 import { NativeMessagingInstaller } from "./native-messaging-install.ts";
@@ -49,12 +50,17 @@ import { OAuthCoordinator } from "./oauth-coordinator.ts";
 import { SecretStore } from "./secret-store.ts";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
-const smokeMode = process.env.LANE_SMOKE_TEST === "1";
 const cliWakeMode = process.env.LANE_CLI_WAKE === "1";
 const releaseBuild = process.env.LANE_RELEASE_BUILD === "1";
-if (smokeMode) app.setPath("userData", mkdtempSync(join(tmpdir(), "lane-smoke-")));
-if (process.env.LANE_TEST_USER_DATA) {
-  app.setPath("userData", process.env.LANE_TEST_USER_DATA);
+const e2eUserData = process.env.LANE_E2E_USER_DATA;
+const e2eMode = e2eUserData !== undefined;
+if (e2eUserData) {
+  const temporaryRoot = `${realpathSync(tmpdir())}${sep}`;
+  const resolvedUserData = realpathSync(e2eUserData);
+  if (!resolvedUserData.startsWith(temporaryRoot)) {
+    throw new Error("Lane E2E user data must be an existing temporary directory");
+  }
+  app.setPath("userData", resolvedUserData);
 }
 process.env.PI_OAUTH_CALLBACK_HOST = "127.0.0.1";
 
@@ -544,7 +550,7 @@ async function createMenubarWindow(): Promise<BrowserWindow> {
     if (!window.webContents.isDevToolsOpened()) window.hide();
   });
   window.on("close", (event) => {
-    if (!quitting && !smokeMode) {
+    if (!quitting && !e2eMode) {
       event.preventDefault();
       window.hide();
     }
@@ -565,7 +571,7 @@ async function createWindow(): Promise<BrowserWindow> {
     height: 460,
     minWidth: 620,
     minHeight: 440,
-    show: !smokeMode && !cliWakeMode,
+    show: !cliWakeMode,
     title: "Lane",
     backgroundColor:
       process.platform === "darwin"
@@ -590,7 +596,7 @@ async function createWindow(): Promise<BrowserWindow> {
     },
   });
   window.on("close", (event) => {
-    if (!quitting && !smokeMode) {
+    if (!quitting && !e2eMode) {
       event.preventDefault();
       window.hide();
     }
@@ -608,7 +614,7 @@ function startAutomaticUpdates(logger: LaneLogger): void {
   if (
     !releaseBuild ||
     !app.isPackaged ||
-    smokeMode ||
+    e2eMode ||
     cliWakeMode ||
     app.getVersion().includes("-") ||
     process.env.LANE_DISABLE_AUTO_UPDATE === "1"
@@ -630,16 +636,16 @@ function startAutomaticUpdates(logger: LaneLogger): void {
 
 async function boot(): Promise<void> {
   const userData = app.getPath("userData");
-  if (process.env.LANE_TEST_USER_DATA) {
+  if (e2eMode) {
     app.setAppLogsPath(join(userData, "logs"));
   } else {
     app.setAppLogsPath();
   }
   const logger = new LaneLogger({ directory: app.getPath("logs") });
-  const secretStore = new SecretStore(
-    join(userData, "secrets.json"),
-    new ElectronSecretBackend(),
-  );
+  const secretBackend = e2eMode
+    ? new E2ESecretBackend(process.env.LANE_E2E_SECRET_KEY ?? "")
+    : new ElectronSecretBackend();
+  const secretStore = new SecretStore(join(userData, "secrets.json"), secretBackend);
   const credentials = new SecureCredentialStore(secretStore);
   core = new AppCore({
     configStore: new ConfigStore(join(userData, "settings.json")),
@@ -658,7 +664,7 @@ async function boot(): Promise<void> {
   });
   const initialState = await core.getState();
   await startCliControl(core);
-  if (!process.defaultApp && !smokeMode) {
+  if (!process.defaultApp && !e2eMode) {
     const nativeMessaging = new NativeMessagingInstaller({
       executablePath: process.execPath,
       userDataPath: userData,
@@ -679,14 +685,6 @@ async function boot(): Promise<void> {
     mainWindow = undefined;
   });
   startAutomaticUpdates(logger);
-  if (smokeMode) {
-    const marker = process.env.LANE_SMOKE_MARKER;
-    if (!marker) throw new Error("LANE_SMOKE_MARKER is required in smoke mode");
-    writeFileSync(marker, "ready\n", { encoding: "utf8", mode: 0o600 });
-    quitting = true;
-    await core.shutdown();
-    app.quit();
-  }
 }
 
 function cliArguments(): string[] {

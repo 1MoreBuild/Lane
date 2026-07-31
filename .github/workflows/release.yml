@@ -55,13 +55,19 @@ jobs:
           done
           test -f release/latest-mac.yml
 
-      - name: Smoke test Apple Silicon package and CLI
+      - name: Run installed Apple Silicon product E2E
         env:
-          LANE_SMOKE_ARCH: arm64
-        run: |
-          npm run smoke:mac
-          npm run smoke:cli:mac
-          npm run smoke:dmg:mac
+          LANE_E2E_ARCH: arm64
+        run: npm run e2e:dmg:mac
+      - name: Upload Apple Silicon E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Lane-E2E-arm64-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results/e2e
+          if-no-files-found: ignore
 
       - name: Create checksums
         run: |
@@ -80,8 +86,8 @@ jobs:
             release/SHA256SUMS
           if-no-files-found: error
 
-  intel-smoke:
-    name: Install and launch Intel release
+  intel-e2e:
+    name: Run installed Intel product E2E
     needs: build
     runs-on: macos-15-intel
     steps:
@@ -89,18 +95,29 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
+          cache: npm
+      - run: npm ci
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: Lane-${{ github.ref_name }}-stable
           path: release
-      - name: Install and launch Intel DMG
+      - name: Run Intel DMG E2E
         env:
-          LANE_SMOKE_ARCH: x64
-        run: npm run smoke:dmg:mac
+          LANE_E2E_ARCH: x64
+        run: npm run e2e:dmg:mac
+      - name: Upload Intel E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Lane-E2E-x64-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results/e2e
+          if-no-files-found: ignore
 
   publish:
     name: Publish stable release
-    needs: [build, intel-smoke]
+    needs: [build, intel-e2e]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -12,6 +12,12 @@ const stableReleaseWorkflow = await readFile(
 );
 
 const failures = [];
+if (Object.keys(pkg.scripts ?? {}).some((name) => name.startsWith("smoke"))) {
+  failures.push("release validation must use product E2E instead of smoke scripts");
+}
+if (/\bsmoke\b/i.test(`${workflow}\n${releaseWorkflow}\n${stableReleaseWorkflow}`)) {
+  failures.push("GitHub workflows must not use smoke tests as release gates");
+}
 if (pkg.build?.appId !== "works.earendil.lane") failures.push("missing stable appId");
 if (pkg.build?.asar !== true) failures.push("ASAR packaging must remain enabled");
 if (pkg.license !== "0BSD") failures.push("project license must be 0BSD");
@@ -56,14 +62,33 @@ if (
 ) {
   failures.push("GitHub auto-update provider is not configured");
 }
-if (!pkg.scripts?.["smoke:dmg:mac"]) failures.push("missing DMG install smoke test");
+if (!pkg.scripts?.e2e || !pkg.devDependencies?.["@playwright/test"]) {
+  failures.push("missing Playwright product E2E suite");
+}
+for (const script of ["e2e:mac:arm64", "e2e:mac:x64", "e2e:win:x64", "e2e:dmg:mac"]) {
+  if (!pkg.scripts?.[script]) failures.push(`missing ${script} product E2E command`);
+}
+if (
+  !pkg.scripts?.["e2e:mac:arm64"]?.includes(
+    "release/mac-arm64/Lane.app/Contents/MacOS/Lane",
+  ) ||
+  !pkg.scripts?.["e2e:mac:x64"]?.includes(
+    "release/mac/Lane.app/Contents/MacOS/Lane",
+  ) ||
+  !pkg.scripts?.["e2e:win:x64"]?.includes("release/win-unpacked/Lane.exe")
+) {
+  failures.push("packaged E2E commands do not select explicit architecture outputs");
+}
 const winTarget = pkg.build?.win?.target?.[0];
 if (winTarget?.target !== "nsis") failures.push("missing Windows NSIS target");
 if (!winTarget?.arch?.includes("x64") || !winTarget?.arch?.includes("arm64")) {
   failures.push("Windows x64 and arm64 must both be configured");
 }
 if (!workflow.includes("windows-latest")) failures.push("CI lacks a Windows job");
-if (!workflow.includes("npm run validate:packaging")) failures.push("CI does not validate packaging");
+if (!workflow.includes("npm run check")) failures.push("CI does not run the full validation suite");
+if (!workflow.includes("e2e:mac:arm64") || !workflow.includes("e2e:win:x64")) {
+  failures.push("CI does not run packaged product E2E on macOS and Windows");
+}
 if (!workflow.includes("permissions:\n  contents: read")) {
   failures.push("CI permissions are not read-only");
 }
@@ -80,8 +105,8 @@ if (!releaseWorkflow.includes('tags: ["v*-test.*"]')) {
 if (!releaseWorkflow.includes("publish:\n") || !releaseWorkflow.includes("      contents: write")) {
   failures.push("release publish job cannot create GitHub Releases");
 }
-if (!releaseWorkflow.includes("npm run smoke:dmg:mac")) {
-  failures.push("test release workflow does not install-smoke the DMG");
+if (!releaseWorkflow.includes("npm run e2e:dmg:mac")) {
+  failures.push("test release workflow does not run installed DMG E2E");
 }
 if (!releaseWorkflow.includes("macos-latest") || !releaseWorkflow.includes("macos-15-intel")) {
   failures.push("test release workflow must build on native Apple Silicon and Intel runners");
@@ -124,18 +149,16 @@ for (const secret of [
 }
 if (
   !stableReleaseWorkflow.includes("runs-on: macos-15-intel") ||
-  !stableReleaseWorkflow.includes("LANE_SMOKE_ARCH: x64") ||
-  !stableReleaseWorkflow.includes("needs: [build, intel-smoke]")
+  !stableReleaseWorkflow.includes("LANE_E2E_ARCH: x64") ||
+  !stableReleaseWorkflow.includes("needs: [build, intel-e2e]")
 ) {
-  failures.push("stable release can publish without a real Intel DMG launch smoke");
+  failures.push("stable release can publish without product E2E on real Intel hardware");
 }
 const stablePublish = stableReleaseWorkflow.indexOf("gh release create");
 for (const requiredGate of [
   "codesign --verify",
   "xcrun stapler validate",
-  "npm run smoke:mac",
-  "npm run smoke:cli:mac",
-  "npm run smoke:dmg:mac",
+  "npm run e2e:dmg:mac",
   "shasum -a 256",
 ]) {
   const gateIndex = stableReleaseWorkflow.indexOf(requiredGate);

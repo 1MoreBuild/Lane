@@ -97,8 +97,8 @@ configuration remains available in Transly when Lane is not installed.
   Signed release builds check after startup and every 30 minutes. An available
   update appears as a small window utility; clicking it replaces the icon with
   download progress, then installs and restarts Lane. A build-time release
-  marker is set only by the signing workflow; development, local package,
-  smoke, and prerelease builds never contact the update feed. A completed
+  marker is set only by the signing workflow; development, E2E, local package,
+  and prerelease builds never contact the update feed. A completed
   download also retains the standard install-on-quit fallback if the immediate
   relaunch is interrupted.
 - The protocol module maps both OpenAI Responses and Chat Completions onto the
@@ -123,6 +123,27 @@ ship for OpenAI API-key or ChatGPT / Codex OAuth connections.
 Model discovery is a control-plane request. Lane calls the provider's model-list
 endpoint, normalizes IDs, and stores only non-secret model metadata. Generation
 requests stay on the data plane and are never made during connection tests.
+
+## Product verification
+
+Vitest covers isolated protocol, provider, storage, security, and lifecycle
+contracts. It is intentionally not treated as proof that the desktop product
+works.
+
+Playwright launches the packaged application with a fresh temporary user
+profile and a local mock provider. The suite connects that provider through the
+visible UI, selects a model, starts the gateway, calls every public API in
+streaming and non-streaming modes, checks authentication and CORS failures,
+aborts an in-flight request, exercises the packaged CLI and approved Native
+Messaging host, restarts the real application, and removes the provider. macOS
+release jobs install the DMG first and run the same journey against the
+installed app on native Apple Silicon and Intel runners. Windows CI runs the
+journey against the packaged Windows application.
+
+E2E credentials use a per-run AES-GCM key and a user-data directory that must
+resolve inside the operating system's temporary directory. The production
+secure-storage backend remains the only backend for normal profiles, so
+automated tests cannot read or prompt for a user's Keychain credentials.
 
 ## Lifecycle
 

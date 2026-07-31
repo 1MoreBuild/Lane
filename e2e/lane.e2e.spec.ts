@@ -1,0 +1,605 @@
+import { randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import {
+  _electron as electron,
+  expect,
+  test,
+  type ElectronApplication,
+  type Page,
+  type TestInfo,
+} from "@playwright/test";
+import { startMockOpenAI, type MockOpenAI } from "../test/mock-openai.ts";
+import { freePort } from "../test/helpers.ts";
+import {
+  LANE_NATIVE_PROTOCOL_VERSION,
+  TRANSLY_PRODUCTION_NATIVE_ALLOWED_ORIGIN,
+} from "../src/shared/native-messaging.ts";
+
+interface LaneSession {
+  app: ElectronApplication;
+  page: Page;
+}
+
+interface LaneTestContext {
+  userData: string;
+  secretKey: string;
+  controlSocket: string;
+  gatewayPort: number;
+  upstream: MockOpenAI;
+  session: LaneSession | undefined;
+  rendererErrors: string[];
+}
+
+function packagedExecutable(): string {
+  if (process.env.LANE_E2E_APP_PATH) {
+    return resolve(process.env.LANE_E2E_APP_PATH);
+  }
+  if (process.platform === "darwin") {
+    const directory = process.arch === "x64" ? "mac" : `mac-${process.arch}`;
+    return resolve(
+      `release/${directory}/Lane.app/Contents/MacOS/Lane`,
+    );
+  }
+  if (process.platform === "win32") {
+    return resolve("release/win-unpacked/Lane.exe");
+  }
+  throw new Error(`Lane E2E does not support ${process.platform}`);
+}
+
+async function createContext(): Promise<LaneTestContext> {
+  const userData = await mkdtemp(join(tmpdir(), "lane-e2e-"));
+  const controlSocket =
+    process.platform === "win32"
+      ? `\\\\.\\pipe\\lane-e2e-${randomBytes(12).toString("hex")}`
+      : join(userData, "lane-control.sock");
+  const gatewayPort = await freePort();
+  const upstream = await startMockOpenAI();
+  await writeFile(
+    join(userData, "settings.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        gateway: {
+          port: gatewayPort,
+          autoStart: false,
+          allowedOrigins: [
+            `http://127.0.0.1:${gatewayPort}`,
+            `http://localhost:${gatewayPort}`,
+          ],
+        },
+        providers: [],
+        launchAtLogin: false,
+        visibility: {
+          showDockIcon: true,
+          showMenuBarIcon: false,
+        },
+        cli: { enabled: false },
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o600 },
+  );
+  return {
+    userData,
+    controlSocket,
+    gatewayPort,
+    upstream,
+    secretKey: randomBytes(32).toString("base64url"),
+    session: undefined,
+    rendererErrors: [],
+  };
+}
+
+async function launchLane(
+  context: LaneTestContext,
+  testInfo: TestInfo,
+): Promise<LaneSession> {
+  const app = await electron.launch({
+    executablePath: packagedExecutable(),
+    env: {
+      ...process.env,
+      LANE_DISABLE_AUTO_UPDATE: "1",
+      LANE_E2E_USER_DATA: context.userData,
+      LANE_E2E_SECRET_KEY: context.secretKey,
+      LANE_CONTROL_SOCKET: context.controlSocket,
+    },
+    artifactsDir: testInfo.outputPath("electron-artifacts"),
+  });
+  const page = await app.firstWindow();
+  page.on("pageerror", (error) => {
+    context.rendererErrors.push(error.message);
+  });
+  page.on("console", (message) => {
+    if (message.type() === "error") context.rendererErrors.push(message.text());
+  });
+  await page.waitForLoadState("domcontentloaded");
+  await expect(page.getByRole("heading", { name: "Gateway" })).toBeVisible();
+  await app.context().tracing.start({
+    screenshots: true,
+    snapshots: true,
+    sources: true,
+  });
+  const session = { app, page };
+  context.session = session;
+  return session;
+}
+
+interface ChildResult {
+  code: number | null;
+  stdout: Buffer;
+  stderr: string;
+}
+
+async function runPackagedProcess(
+  context: LaneTestContext,
+  executable: string,
+  args: string[],
+  input?: Buffer,
+  extraEnv: NodeJS.ProcessEnv = {},
+): Promise<ChildResult> {
+  return await new Promise<ChildResult>((resolveChild, rejectChild) => {
+    const child = spawn(executable, args, {
+      env: {
+        ...process.env,
+        LANE_DISABLE_AUTO_UPDATE: "1",
+        LANE_E2E_USER_DATA: context.userData,
+        LANE_E2E_SECRET_KEY: context.secretKey,
+        LANE_CONTROL_SOCKET: context.controlSocket,
+        ...extraEnv,
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const stdout: Buffer[] = [];
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill();
+      rejectChild(new Error(`Packaged process timed out: ${executable} ${args.join(" ")}`));
+    }, 15_000);
+    child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      rejectChild(error);
+    });
+    child.once("close", (code) => {
+      clearTimeout(timeout);
+      resolveChild({ code, stdout: Buffer.concat(stdout), stderr });
+    });
+    child.stdin.end(input);
+  });
+}
+
+function cliExecutable(): { executable: string; env: NodeJS.ProcessEnv } {
+  const appExecutable = packagedExecutable();
+  if (process.platform === "darwin") {
+    return {
+      executable: resolve(
+        dirname(appExecutable),
+        "../Resources/bin/lane",
+      ),
+      env: {},
+    };
+  }
+  return {
+    executable: appExecutable,
+    env: { LANE_BE_CLI: "1" },
+  };
+}
+
+function nativeFrame(value: unknown): Buffer {
+  const payload = Buffer.from(JSON.stringify(value), "utf8");
+  const frame = Buffer.allocUnsafe(4 + payload.length);
+  frame.writeUInt32LE(payload.length, 0);
+  payload.copy(frame, 4);
+  return frame;
+}
+
+function decodeNativeFrame(frame: Buffer): unknown {
+  expect(frame.length).toBeGreaterThanOrEqual(4);
+  const length = frame.readUInt32LE(0);
+  expect(frame.length).toBe(4 + length);
+  return JSON.parse(frame.subarray(4).toString("utf8"));
+}
+
+async function closeLane(
+  context: LaneTestContext,
+  testInfo: TestInfo,
+  retainFailureDiagnostics = true,
+): Promise<void> {
+  const session = context.session;
+  if (!session) return;
+  const failed =
+    retainFailureDiagnostics && testInfo.status !== testInfo.expectedStatus;
+  try {
+    if (failed) {
+      await testInfo.attach("lane-window", {
+        body: await session.page.screenshot(),
+        contentType: "image/png",
+      });
+    }
+    if (failed) {
+      const tracePath = testInfo.outputPath("trace.zip");
+      await session.app.context().tracing.stop({ path: tracePath });
+      await testInfo.attach("trace", {
+        path: tracePath,
+        contentType: "application/zip",
+      });
+    } else {
+      await session.app.context().tracing.stop();
+    }
+  } finally {
+    await session.app.close().catch(() => undefined);
+    context.session = undefined;
+  }
+}
+
+async function connectMockProvider(page: Page, upstream: MockOpenAI): Promise<void> {
+  await page.getByRole("button", { name: "Add provider" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add provider" });
+  await dialog.locator('[data-slot="select-trigger"]').click();
+  await page.getByRole("option", { name: /Custom endpoint/ }).click();
+  await dialog.getByLabel("Display name").fill("Mock");
+  await dialog.getByLabel("Base URL").fill(upstream.baseUrl);
+  await dialog.getByLabel("API key").fill("mock-upstream-key");
+  await dialog.getByRole("button", { name: "Test and connect" }).click();
+  await expect(page.getByText("Connected · 2 models")).toBeVisible();
+  await expect(page.getByText("Mock", { exact: true })).toBeVisible();
+
+  await page.getByRole("combobox", { name: "Default model" }).click();
+  await page.getByRole("option", { name: "mock-model", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Default model" })).toContainText(
+    "mock-model",
+  );
+}
+
+async function startGateway(page: Page): Promise<{ apiBaseUrl: string; clientKey: string }> {
+  const gateway = page.getByRole("switch", { name: "Local gateway" });
+  await gateway.click();
+  await expect(gateway).toBeChecked();
+  await page.getByRole("button", { name: "Reveal client key" }).click();
+  const apiBaseUrl =
+    (await page.getByLabel("API base URL value").textContent())?.trim() ?? "";
+  const clientKey =
+    (await page.getByLabel("Client key value").textContent())?.trim() ?? "";
+  expect(apiBaseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/v1$/);
+  expect(clientKey.length).toBeGreaterThan(30);
+  return { apiBaseUrl, clientKey };
+}
+
+function headers(clientKey: string, origin?: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${clientKey}`,
+    "Content-Type": "application/json",
+    ...(origin ? { Origin: origin } : {}),
+  };
+}
+
+test.describe("Lane packaged product journeys", () => {
+  let context: LaneTestContext;
+
+  test.beforeEach(async ({ browserName: _browserName }, testInfo) => {
+    context = await createContext();
+    await launchLane(context, testInfo);
+  });
+
+  test.afterEach(async ({ browserName: _browserName }, testInfo) => {
+    try {
+      await closeLane(context, testInfo);
+      if (testInfo.status === testInfo.expectedStatus) {
+        expect(context.rendererErrors).toEqual([]);
+      }
+    } finally {
+      await context.upstream.close();
+      await rm(context.userData, { recursive: true, force: true });
+    }
+  });
+
+  test("connects a provider in the UI and serves every public API", async () => {
+    const page = context.session!.page;
+    await connectMockProvider(page, context.upstream);
+    const { apiBaseUrl, clientKey } = await startGateway(page);
+
+    const health = await fetch(`${apiBaseUrl.replace(/\/v1$/, "")}/health`, {
+      headers: headers(clientKey),
+    });
+    expect(health.status).toBe(200);
+
+    const models = await fetch(`${apiBaseUrl}/models`, {
+      headers: headers(clientKey),
+    });
+    expect(models.status).toBe(200);
+    const modelData = (await models.json() as any).data;
+    expect(modelData).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: expect.stringContaining("mock-model") }),
+        expect.objectContaining({ id: expect.stringContaining("mock-image") }),
+      ]),
+    );
+
+    const responses = await fetch(`${apiBaseUrl}/responses`, {
+      method: "POST",
+      headers: headers(clientKey),
+      body: JSON.stringify({ input: "hello" }),
+    });
+    expect(responses.status).toBe(200);
+    expect((await responses.json() as any).output_text).toBe("hello from mock");
+
+    const responsesStream = await fetch(`${apiBaseUrl}/responses`, {
+      method: "POST",
+      headers: headers(clientKey),
+      body: JSON.stringify({ input: "hello", stream: true }),
+    });
+    expect(responsesStream.status).toBe(200);
+    const responsesEvents = await responsesStream.text();
+    expect(responsesEvents).toContain("event: response.output_text.delta");
+    expect(responsesEvents).toContain("event: response.completed");
+
+    const chat = await fetch(`${apiBaseUrl}/chat/completions`, {
+      method: "POST",
+      headers: headers(clientKey),
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+    expect(chat.status).toBe(200);
+    expect((await chat.json() as any).choices[0].message.content).toBe(
+      "hello from mock",
+    );
+
+    const chatStream = await fetch(`${apiBaseUrl}/chat/completions`, {
+      method: "POST",
+      headers: headers(clientKey),
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "hello" }],
+        stream: true,
+      }),
+    });
+    expect(chatStream.status).toBe(200);
+    const chatEvents = await chatStream.text();
+    expect(chatEvents).toContain('"object":"chat.completion.chunk"');
+    expect(chatEvents).toContain("data: [DONE]");
+
+    const image = await fetch(`${apiBaseUrl}/images/generations`, {
+      method: "POST",
+      headers: headers(clientKey),
+      body: JSON.stringify({ prompt: "draw a lane" }),
+    });
+    expect(image.status).toBe(200);
+    expect((await image.json() as any).data[0].b64_json).toBeTruthy();
+
+    expect(
+      context.upstream.requests.every(
+        (request) => request.authorization === "Bearer mock-upstream-key",
+      ),
+    ).toBe(true);
+  });
+
+  test("enforces the client boundary and maps upstream failures", async () => {
+    const page = context.session!.page;
+    await connectMockProvider(page, context.upstream);
+    const { apiBaseUrl, clientKey } = await startGateway(page);
+
+    const missingKey = await fetch(`${apiBaseUrl}/models`);
+    expect(missingKey.status).toBe(401);
+
+    const wrongKey = await fetch(`${apiBaseUrl}/models`, {
+      headers: headers("wrong-key"),
+    });
+    expect(wrongKey.status).toBe(401);
+
+    const forbiddenOrigin = await fetch(`${apiBaseUrl}/models`, {
+      headers: headers(clientKey, "https://untrusted.example"),
+    });
+    expect(forbiddenOrigin.status).toBe(403);
+
+    const upstreamFailure = await fetch(`${apiBaseUrl}/chat/completions`, {
+      method: "POST",
+      headers: headers(clientKey),
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "upstream-error" }],
+      }),
+    });
+    expect(upstreamFailure.status).toBe(502);
+    const error = (await upstreamFailure.json() as any).error;
+    expect(error.type).toBe("provider_error");
+    expect(JSON.stringify(error)).not.toContain("mock upstream exploded");
+    expect(JSON.stringify(error)).not.toContain("mock-upstream-key");
+
+    const controller = new AbortController();
+    const slow = await fetch(`${apiBaseUrl}/chat/completions`, {
+      method: "POST",
+      headers: headers(clientKey),
+      signal: controller.signal,
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "slow-stream" }],
+        stream: true,
+      }),
+    });
+    const reader = slow.body!.getReader();
+    await reader.read();
+    controller.abort();
+    await expect(reader.read()).rejects.toThrow();
+    await expect
+      .poll(() => context.upstream.abortedRequests)
+      .toBeGreaterThan(0);
+  });
+
+  test("serves the packaged CLI and approved browser extension", async () => {
+    const page = context.session!.page;
+    await connectMockProvider(page, context.upstream);
+    const { apiBaseUrl, clientKey } = await startGateway(page);
+
+    const cli = cliExecutable();
+    const status = await runPackagedProcess(
+      context,
+      cli.executable,
+      ["status", "--json", "--no-input"],
+      undefined,
+      cli.env,
+    );
+    expect(status.code, status.stderr).toBe(0);
+    const statusData = JSON.parse(status.stdout.toString("utf8")) as {
+      gateway: { running: boolean; api_base_url: string };
+      default_model: string;
+      providers: { connected: number; total: number };
+    };
+    expect(statusData).toMatchObject({
+      gateway: {
+        running: true,
+        api_base_url: apiBaseUrl,
+      },
+      providers: {
+        connected: 1,
+        total: 1,
+      },
+    });
+    expect(statusData.default_model).toMatch(/\/mock-model$/);
+
+    const models = await runPackagedProcess(
+      context,
+      cli.executable,
+      ["models", "--json", "--no-input"],
+      undefined,
+      cli.env,
+    );
+    expect(models.code, models.stderr).toBe(0);
+    const modelData = JSON.parse(models.stdout.toString("utf8")) as Array<{
+      id: string;
+    }>;
+    expect(modelData).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: statusData.default_model }),
+        expect.objectContaining({ id: expect.stringMatching(/\/mock-image$/) }),
+      ]),
+    );
+
+    const request = nativeFrame({
+      protocolVersion: LANE_NATIVE_PROTOCOL_VERSION,
+      type: "connect",
+    });
+    const native = await runPackagedProcess(
+      context,
+      packagedExecutable(),
+      [TRANSLY_PRODUCTION_NATIVE_ALLOWED_ORIGIN],
+      request,
+    );
+    expect(native.code, native.stderr).toBe(0);
+    expect(decodeNativeFrame(native.stdout)).toMatchObject({
+      protocolVersion: LANE_NATIVE_PROTOCOL_VERSION,
+      ok: true,
+      data: {
+        service: "lane",
+        apiUrl: apiBaseUrl,
+        apiKey: clientKey,
+        models: expect.arrayContaining([
+          statusData.default_model,
+          expect.stringMatching(/\/mock-image$/),
+        ]),
+        defaultModel: statusData.default_model,
+        protocol: "responses",
+      },
+    });
+    expect(native.stdout.toString("utf8")).not.toContain("mock-upstream-key");
+
+    const rejected = await runPackagedProcess(
+      context,
+      packagedExecutable(),
+      ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"],
+      request,
+    );
+    expect(rejected.code).toBe(1);
+    expect(decodeNativeFrame(rejected.stdout)).toMatchObject({
+      protocolVersion: LANE_NATIVE_PROTOCOL_VERSION,
+      ok: false,
+      error: {
+        code: "CALLER_NOT_ALLOWED",
+      },
+    });
+    expect(rejected.stdout.toString("utf8")).not.toContain(clientKey);
+    expect(rejected.stdout.toString("utf8")).not.toContain("mock-upstream-key");
+  });
+
+  test("restores configuration and gateway state after a real restart", async (
+    { browserName: _browserName },
+    testInfo,
+  ) => {
+    let page = context.session!.page;
+    await connectMockProvider(page, context.upstream);
+    const initial = await startGateway(page);
+    await closeLane(context, testInfo, false);
+
+    const secretsBeforeRestart = await readFile(
+      join(context.userData, "secrets.json"),
+      "utf8",
+    );
+    expect(secretsBeforeRestart).not.toContain("mock-upstream-key");
+    expect(secretsBeforeRestart).not.toContain(initial.clientKey);
+
+    ({ page } = await launchLane(context, testInfo));
+    await expect(page.getByText("Mock", { exact: true })).toBeVisible();
+    await expect(page.getByText("Connected · 2 models")).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Default model" })).toContainText(
+      "mock-model",
+    );
+    await expect(page.getByRole("switch", { name: "Local gateway" })).toBeChecked();
+
+    const models = await fetch(`${initial.apiBaseUrl}/models`, {
+      headers: headers(initial.clientKey),
+    });
+    expect(models.status).toBe(200);
+
+    await page.getByRole("button", { name: "Remove Mock" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
+    await expect(page.getByText("No providers")).toBeVisible();
+
+    const storedSecrets = JSON.parse(
+      await readFile(join(context.userData, "secrets.json"), "utf8"),
+    ) as Record<string, string>;
+    expect(Object.keys(storedSecrets)).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^credential:/)]),
+    );
+  });
+
+  test("changes ports only after explicit confirmation when the port is occupied", async () => {
+    const occupied = createNetServer();
+    await new Promise<void>((resolveListen, reject) => {
+      occupied.once("error", reject);
+      occupied.listen(context.gatewayPort, "127.0.0.1", resolveListen);
+    });
+    try {
+      await context.session!.app.evaluate(({ dialog }) => {
+        dialog.showMessageBox = async () => ({
+          response: 0,
+          checkboxChecked: false,
+        });
+      });
+      const page = context.session!.page;
+      const gateway = page.getByRole("switch", { name: "Local gateway" });
+      await gateway.click();
+      await expect(gateway).toBeChecked();
+      const changedUrl =
+        (await page.getByLabel("API base URL value").textContent())?.trim() ?? "";
+      expect(changedUrl).not.toContain(`:${context.gatewayPort}/`);
+
+      await page.getByRole("button", { name: "Reveal client key" }).click();
+      const clientKey =
+        (await page.getByLabel("Client key value").textContent())?.trim() ?? "";
+      const health = await fetch(`${changedUrl.replace(/\/v1$/, "")}/health`, {
+        headers: headers(clientKey),
+      });
+      expect(health.status).toBe(200);
+    } finally {
+      await new Promise<void>((resolveClose, reject) => {
+        occupied.close((error) => (error ? reject(error) : resolveClose()));
+      });
+    }
+  });
+});

@@ -35,6 +35,12 @@ disk. Public JSON settings contain no secrets. The renderer preload exposes
 provider actions and public status, not credential reads. Upstream secrets are
 never written into HTTP responses.
 
+Packaged E2E runs use an isolated AES-GCM backend so unsigned automation never
+prompts for or opens a user's Keychain. That backend is accepted only when the
+test profile resolves inside the operating system temporary directory and a
+fresh 32-byte run key is supplied. It cannot be selected for Lane's normal user
+profile.
+
 The Lane client key is different: local clients need it, so the renderer can show
 and copy it. It is still encrypted at rest. Anyone who obtains it can use the
 local gateway while Lane is running.
@@ -117,7 +123,7 @@ tools. Automated tests use a local mock provider and do not send paid requests.
 
 Stable packages use `electron-updater` and an explicit public GitHub Releases
 feed. The updater is compiled on only when the signed release workflow sets its
-build marker. Development, smoke, local packages, and unsigned prereleases do
+build marker. Development, E2E, local packages, and unsigned prereleases do
 not check for updates. The client never embeds a GitHub token. The user starts
 the download from Lane's update control; progress is shown in place, and the
 signed update installs and restarts Lane when the download completes.

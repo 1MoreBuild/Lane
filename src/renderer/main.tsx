@@ -704,7 +704,10 @@ function App(): ReactNode {
                   <span className="lane-label text-muted-foreground">
                     API base URL
                   </span>
-                  <code className="lane-mono-value block truncate">
+                  <code
+                    aria-label="API base URL value"
+                    className="lane-mono-value block truncate"
+                  >
                     {apiBaseUrl}
                   </code>
                   <div className="flex items-center">
@@ -780,7 +783,10 @@ function App(): ReactNode {
                   <span className="lane-label text-muted-foreground">
                     Client key
                   </span>
-                  <code className="lane-mono-value block truncate">
+                  <code
+                    aria-label="Client key value"
+                    className="lane-mono-value block truncate"
+                  >
                     {keyVisible ? state.clientKey : "••••••••••••••••••••"}
                   </code>
                   <div className="flex">

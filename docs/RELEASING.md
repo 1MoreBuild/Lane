@@ -7,12 +7,14 @@ rollback path.
 ## Current release boundary
 
 - The source repository is public under the permissive 0BSD license.
-- macOS arm64 builds and launch/CLI smoke tests run on the current Mac.
+- Packaged macOS product E2E runs against a local mock provider on the current
+  Mac.
 - macOS output is unsigned. It is suitable for local testing, not public
   download.
 - Tags matching `v*-test.*` create separate unsigned Apple Silicon and Intel
-  DMGs as a GitHub prerelease. Each package is built, installed, and launched
-  on a native runner before publishing. These builds are for early feedback only.
+  DMGs as a GitHub prerelease. Each DMG is installed and driven through the
+  complete provider, gateway, API, security, and restart journey on a native
+  runner before publishing. These builds are for early feedback only.
 - Windows NSIS x64 and arm64 configuration and CI checks exist. Windows runtime
   behavior has not been verified on a Windows host.
 - ChatGPT / Codex login requires interactive acceptance with an eligible account.
@@ -74,8 +76,8 @@ credentials explicitly and sets `forceCodeSigning`.
 Stable version tags such as `v0.1.0` build separate Apple Silicon and Intel DMG
 and ZIP artifacts, `latest-mac.yml`, checksums, and a GitHub Release. The ZIP and
 metadata are required by the standard Squirrel.Mac update path. Publishing waits
-for signature/notarization checks, full Apple Silicon smoke tests, and an
-install-and-launch smoke on a real Intel runner. Prerelease tags such as
+for signature/notarization checks and installed-product E2E on both Apple
+Silicon and a real Intel runner. Prerelease tags such as
 `v0.1.1-test.1` remain unsigned, manual-install feedback builds.
 
 Verify a release candidate with:
@@ -113,10 +115,8 @@ Run from a clean checkout:
 npm ci
 npm audit
 npm run check
-npm run build
-npm run package:mac
-npm run smoke:mac
-npm run smoke:cli:mac
+npm run package:mac:arm64
+LANE_E2E_ARCH=arm64 npm run e2e:dmg:mac
 ```
 
 Then verify:
@@ -134,7 +134,7 @@ Then verify:
 - port conflicts and expired credentials produce redacted diagnostics;
 - real OAuth login is performed only as an explicit interactive acceptance
   step;
-- a manual generation smoke request uses a test account/budget and is never
+- a manual generation acceptance request uses a test account/budget and is never
   hidden inside automated CI.
 
 Publish a beta only after the signed artifacts pass these checks on clean target
