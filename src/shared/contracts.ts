@@ -96,9 +96,16 @@ export interface AddProviderInput {
   baseUrl?: string;
 }
 
+export type LaneUpdateState =
+  | { status: "idle" }
+  | { status: "available"; version: string }
+  | { status: "downloading"; version: string; percent: number };
+
 export interface LaneRendererApi {
   readonly platform: string;
   getState(): Promise<LaneState>;
+  getUpdateState(): Promise<LaneUpdateState>;
+  downloadUpdate(): Promise<void>;
   addProvider(input: AddProviderInput): Promise<LaneState>;
   removeProvider(providerId: string): Promise<LaneState>;
   startOAuth(): Promise<LaneState>;
@@ -117,6 +124,7 @@ export interface LaneRendererApi {
   openMainWindow(): Promise<void>;
   quitApp(): Promise<void>;
   onStateChanged(listener: (state: LaneState) => void): () => void;
+  onUpdateStateChanged(listener: (state: LaneUpdateState) => void): () => void;
   onOAuthEvent(listener: (event: OAuthUiEvent) => void): () => void;
 }
 

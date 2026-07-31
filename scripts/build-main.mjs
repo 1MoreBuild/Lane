@@ -12,7 +12,17 @@ await build({
   // pi-ai intentionally loads Node-only OAuth modules relative to its own
   // import.meta.url. Keep the package external so bundling cannot relocate
   // that provider-owned loader.
-  external: ["electron", "@earendil-works/pi-ai", "@earendil-works/pi-ai/*"],
+  external: [
+    "electron",
+    "electron-updater",
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-ai/*",
+  ],
+  define: {
+    "process.env.LANE_RELEASE_BUILD": JSON.stringify(
+      process.env.LANE_RELEASE_BUILD ?? "",
+    ),
+  },
   sourcemap: true,
   splitting: true,
   chunkNames: "chunks/[name]-[hash]",

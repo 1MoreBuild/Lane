@@ -18,15 +18,16 @@ rollback path.
 - ChatGPT / Codex login requires interactive acceptance with an eligible account.
   Automated tests do not claim that a real account can log in.
 - Automated tests use mock providers and never make a paid generation request.
-- No automatic updater or telemetry service is included.
+- Stable builds use `electron-updater` with public GitHub Releases. Unsigned
+  previews cannot auto-update. No telemetry service is included.
 
 ## Before the first public beta
 
 1. Confirm the product name, `works.earendil.lane` application identifier,
    versioning policy, support address, privacy statement, and release owner.
 2. Protect `main` and require the CI workflow for pull requests.
-3. Add a release workflow that builds only from a version tag and publishes
-   immutable artifacts, SHA-256 checksums, and release notes.
+3. Add the required GitHub Actions secrets for Developer ID signing and Apple
+   notarization. The stable release workflow refuses an unsigned build.
 4. Keep signing credentials in the release environment's secret store. Never
    commit certificates, private keys, API keys, or notarization credentials.
 
@@ -65,10 +66,15 @@ Public downloads outside the Mac App Store need:
 - Apple notarization for the final DMG and a stapled notarization ticket;
 - verification on a clean Mac with Gatekeeper enabled.
 
-The unsigned local build keeps `build.mac.identity` disabled so ordinary CI and
+Unsigned test scripts disable signing identity discovery so ordinary CI and
 contributors do not accidentally select an unrelated local certificate. The
-release workflow must supply the intended identity and notarization credentials
-explicitly.
+stable release workflow supplies the intended identity and notarization
+credentials explicitly and sets `forceCodeSigning`.
+
+Stable version tags such as `v0.1.0` build separate Apple Silicon and Intel DMG
+and ZIP artifacts, `latest-mac.yml`, checksums, and a GitHub Release. The ZIP and
+metadata are required by the standard Squirrel.Mac update path. Prerelease tags
+such as `v0.1.1-test.1` remain unsigned, manual-install feedback builds.
 
 Verify a release candidate with:
 
@@ -114,6 +120,8 @@ npm run smoke:cli:mac
 Then verify:
 
 - the Git tag, app version, release notes, checksums, and artifacts agree;
+- update from the previous signed release downloads, restarts, preserves
+  settings, and can be rolled back manually;
 - the macOS ASAR hash exists in `ElectronAsarIntegrity`;
 - no secret, local path, temporary file, or development server URL is packaged;
 - the gateway still binds only to `127.0.0.1`;

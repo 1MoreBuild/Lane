@@ -10,6 +10,7 @@ import {
   Braces,
   Check,
   Clipboard,
+  Download,
   Eye,
   EyeOff,
   LoaderCircle,
@@ -72,6 +73,7 @@ import type {
   AddProviderInput,
   CliIntegrationState,
   LaneState,
+  LaneUpdateState,
   ProviderKind,
   ProviderStatus,
 } from "../shared/contracts.ts";
@@ -233,6 +235,47 @@ function ThemeSetting(): ReactNode {
 
 type UtilityPanel = "activity" | "settings";
 
+function UpdateControl({
+  state,
+  onClick,
+}: {
+  state: LaneUpdateState;
+  onClick: () => void;
+}): ReactNode {
+  if (state.status === "idle") return null;
+  const downloading = state.status === "downloading";
+  const percent = downloading ? Math.round(state.percent) : undefined;
+  const label = downloading
+    ? `Downloading Lane ${state.version}: ${percent}%`
+    : `Download Lane ${state.version}`;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        aria-disabled={downloading}
+        aria-label={label}
+        onClick={downloading ? undefined : onClick}
+        render={
+          <Button
+            className="tabular-nums"
+            size="icon-sm"
+            title={label}
+            variant="ghost"
+          />
+        }
+      >
+        {downloading ? (
+          <span className="text-[0.625rem] font-semibold tracking-[-0.02em]">
+            {percent}%
+          </span>
+        ) : (
+          <Download />
+        )}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function UtilityPanels({
   activityContent,
   settingsContent,
@@ -271,6 +314,9 @@ function UtilityPanels({
 
 function App(): ReactNode {
   const [state, setState] = useState<LaneState | null>(null);
+  const [updateState, setUpdateState] = useState<LaneUpdateState>({
+    status: "idle",
+  });
   const [loadError, setLoadError] = useState("");
   const [gatewayBusy, setGatewayBusy] = useState(false);
   const [keyVisible, setKeyVisible] = useState(false);
@@ -293,6 +339,7 @@ function App(): ReactNode {
 
   useEffect(() => {
     const unsubscribeState = window.lane.onStateChanged(setState);
+    const unsubscribeUpdate = window.lane.onUpdateStateChanged(setUpdateState);
     const unsubscribeOAuth = window.lane.onOAuthEvent((event) => {
       if (event.type === "auth_url") {
         setOAuthStatus(event.instructions ?? "Finish signing in in your browser.");
@@ -307,12 +354,16 @@ function App(): ReactNode {
     window.lane.getState().then(setState).catch((error: unknown) => {
       setLoadError(getErrorMessage(error));
     });
+    window.lane.getUpdateState().then(setUpdateState).catch(() => {
+      setUpdateState({ status: "idle" });
+    });
     window.lane.getCliIntegration().then(setCliIntegration).catch(() => {
       setCliIntegration(null);
     });
 
     return () => {
       unsubscribeState();
+      unsubscribeUpdate();
       unsubscribeOAuth();
     };
   }, []);
@@ -1125,6 +1176,15 @@ function App(): ReactNode {
             </div>
           </main>
         </div>
+
+        {updateState.status !== "idle" && (
+          <div aria-live="polite" className="lane-update-control">
+            <UpdateControl
+              onClick={() => void window.lane.downloadUpdate()}
+              state={updateState}
+            />
+          </div>
+        )}
       </div>
 
       <AlertDialog

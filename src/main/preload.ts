@@ -4,12 +4,16 @@ import type {
   CliIntegrationState,
   LaneRendererApi,
   LaneState,
+  LaneUpdateState,
   OAuthUiEvent,
 } from "../shared/contracts.ts";
 
 const api: LaneRendererApi = {
   platform: process.platform,
   getState: () => ipcRenderer.invoke("lane:get-state") as Promise<LaneState>,
+  getUpdateState: () =>
+    ipcRenderer.invoke("lane:get-update-state") as Promise<LaneUpdateState>,
+  downloadUpdate: () => ipcRenderer.invoke("lane:download-update") as Promise<void>,
   addProvider: (input: AddProviderInput) =>
     ipcRenderer.invoke("lane:add-provider", input) as Promise<LaneState>,
   removeProvider: (providerId: string) =>
@@ -40,6 +44,12 @@ const api: LaneRendererApi = {
     const handler = (_event: Electron.IpcRendererEvent, state: LaneState) => listener(state);
     ipcRenderer.on("lane:state-changed", handler);
     return () => ipcRenderer.removeListener("lane:state-changed", handler);
+  },
+  onUpdateStateChanged: (listener: (state: LaneUpdateState) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: LaneUpdateState) =>
+      listener(state);
+    ipcRenderer.on("lane:update-state-changed", handler);
+    return () => ipcRenderer.removeListener("lane:update-state-changed", handler);
   },
   onOAuthEvent: (listener: (event: OAuthUiEvent) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, value: OAuthUiEvent) => listener(value);

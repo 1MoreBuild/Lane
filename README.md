@@ -34,6 +34,7 @@ agent loop, or execute tool calls.
 - Credentials stay in Keychain-backed secure storage.
 - The gateway listens only on `127.0.0.1` and requires a separate Lane key.
 - Desktop, menu bar, CLI, and automatic Transly connection.
+- Signed releases update through GitHub Releases after user confirmation.
 
 ## Download
 
@@ -47,6 +48,9 @@ Lane is an unsigned developer preview for early testing.
 Get the right DMG from [GitHub Releases](https://github.com/1MoreBuild/Lane/releases)
 and follow the [installation guide](docs/TEST_BUILDS.md). Never disable
 Gatekeeper globally.
+
+Unsigned previews update manually. Signed releases show an update control in
+the window; click it to download in place and restart into the new version.
 
 ## Start in three steps
 

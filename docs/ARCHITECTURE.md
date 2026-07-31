@@ -93,6 +93,12 @@ configuration remains available in Transly when Lane is not installed.
   Startup reloads recent entries, removes files older than 7 days, enforces a
   5 MiB aggregate cap, and rotates files at 1 MiB. Persistence is diagnostic:
   a filesystem failure falls back to memory without stopping the gateway.
+- `LaneAutoUpdate` uses `electron-updater` with the GitHub Releases provider.
+  Signed release builds check after startup and every 30 minutes. An available
+  update appears as a small window utility; clicking it replaces the icon with
+  download progress, then installs and restarts Lane. A build-time release
+  marker is set only by the signing workflow; development, local package,
+  smoke, and prerelease builds never contact the update feed.
 - The protocol module maps both OpenAI Responses and Chat Completions onto the
   same canonical request/event model.
 - Image generation has its own canonical one-shot request/result model. It uses
@@ -122,7 +128,10 @@ Settings record whether the gateway should be restored. On launch, Lane restores
 public configuration, obtains the Lane client key from secure storage, rebuilds
 the provider collection, and starts the fixed loopback listener if requested.
 Failure leaves the app open with a concrete diagnostic, such as a port conflict
-or unavailable secure storage.
+or unavailable secure storage. A short-lived port conflict is retried on the
+same configured port. If the port remains occupied, the desktop UI offers an
+available port and changes the API URL only after confirmation. The new port is
+persisted and returned to Transly through Native Messaging.
 
 Removing or logging out a provider deletes its secret before removing the public
 configuration. Changing providers rebuilds the runtime behind a stable gateway
@@ -131,6 +140,8 @@ holder, so clients do not need a new endpoint.
 Activity is loaded before configuration restoration so startup events append to
 the previous history. Clean shutdown waits for queued activity writes. Cleanup
 runs at startup, after rotation, and at least daily while Lane remains open.
+An accepted update first stops the gateway and private control socket, then
+hands the signed package to the platform updater.
 
 ## Compatibility policy
 
