@@ -6,7 +6,7 @@ rollback path.
 
 ## Current release boundary
 
-- The source repository is public under the permissive 0BSD license.
+- The source repository is public under the permissive MIT license.
 - Packaged macOS product E2E runs against a local mock provider on the current
   Mac.
 - macOS output is unsigned. It is suitable for local testing, not public

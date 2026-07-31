@@ -18,7 +18,7 @@ if (/\bsmoke\b/i.test(`${workflow}\n${releaseWorkflow}\n${stableReleaseWorkflow}
 }
 if (pkg.build?.appId !== "works.earendil.lane") failures.push("missing stable appId");
 if (pkg.build?.asar !== true) failures.push("ASAR packaging must remain enabled");
-if (pkg.license !== "0BSD") failures.push("project license must be 0BSD");
+if (pkg.license !== "MIT") failures.push("project license must be MIT");
 if (!pkg.build?.files?.includes("LICENSE")) failures.push("package omits project license");
 if (!pkg.build?.files?.includes("THIRD_PARTY_NOTICES.md")) {
   failures.push("package omits third-party notices");

@@ -4,7 +4,7 @@
   "private": true,
   "description": "A local, multi-provider AI gateway for desktop apps.",
   "author": "Lane contributors",
-  "license": "0BSD",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/1MoreBuild/Lane.git"

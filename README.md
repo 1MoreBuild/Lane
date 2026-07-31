@@ -122,4 +122,4 @@ Lane is independent and is not part of Transly.
 
 ## License
 
-[0BSD](LICENSE) © 2026 Lane contributors
+[MIT](LICENSE) © 2026 Lane contributors
