@@ -118,7 +118,9 @@ describe("Lane native messaging", () => {
     const state = await installer.install();
     expect(state.installed).toBe(true);
     const manifest = JSON.parse(await readFile(state.manifestPath!, "utf8"));
-    expect((await stat(state.manifestPath!)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect((await stat(state.manifestPath!)).mode & 0o777).toBe(0o600);
+    }
     expect(manifest).toEqual({
       name: LANE_NATIVE_HOST_NAME,
       description: "Connect approved browser extensions to the Lane local AI gateway",
