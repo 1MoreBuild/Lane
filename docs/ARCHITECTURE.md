@@ -45,8 +45,9 @@ authorization dialog. The launcher is independent of the renderer and can wake
 Lane without opening the main window.
 
 The packaged app also registers a Chrome Native Messaging host for an explicit
-Transly extension-ID allowlist. The current entry is the development ID derived
-from Transly's checked-in manifest key, not a confirmed Chrome Web Store ID:
+Transly extension-ID allowlist. It contains the verified production Web Store
+ID `mdjfkiddlpdgchddcckhcmdjekmmhcgp` and the intentionally retained unpacked
+development ID `lmpgipgoelkfcbdpboffkbhniifhicdd`:
 
 ```text
 Transly service worker
@@ -82,9 +83,10 @@ configuration remains available in Transly when Lane is not installed.
   secret is stored by the same main-process credential path used by the UI.
 - `NativeMessagingInstaller` registers the packaged executable for the explicit
   Transly extension-ID allowlist. Native-host mode validates Chrome's caller
-  origin before requesting a browser-client connection over the private control
-  socket. A production release must first confirm the Chrome Web Store item ID
-  against Transly's manifest public key and unpacked extension ID.
+  origin and forwards that exact verified origin when requesting a browser-client
+  connection over the private control socket. Production releases must confirm
+  that the Web Store public key, unpacked extension ID, Dashboard item ID, and
+  Lane allowlist still agree.
 - `LaneLogger` keeps the latest 200 redacted activity entries in memory and
   mirrors them to daily JSONL files in Electron's application log directory.
   Startup reloads recent entries, removes files older than 7 days, enforces a

@@ -33,16 +33,24 @@ rollback path.
 
 ### Chrome Web Store integration gate
 
-The current Transly Native Messaging allowlist contains the extension ID
-derived from the development manifest key. Do not treat it as a confirmed
-Chrome Web Store item ID.
+Transly's Chrome Web Store draft and public key have been verified. Its
+production extension ID is:
 
-Before a public Lane release:
+```text
+mdjfkiddlpdgchddcckhcmdjekmmhcgp
+```
 
-1. Upload the Transly extension zip in the Chrome Developer Dashboard.
-2. Copy the package public key into Transly's manifest `key`.
-3. Verify that the unpacked extension ID matches the Dashboard item ID.
-4. Update and test Lane's explicit extension-ID allowlist if the ID changed.
+Lane also intentionally allows the key-derived development ID
+`lmpgipgoelkfcbdpboffkbhniifhicdd` for local unpacked builds.
+
+Before each public Lane release:
+
+1. Confirm Transly's manifest still contains the verified Web Store public key.
+2. Confirm the unpacked extension ID and Dashboard item ID still match the
+   production ID above.
+3. Confirm Lane's Native Messaging and CORS allowlists contain exactly the
+   production ID and any intentionally supported development IDs.
+4. Run the Native Messaging allowlist and packaged launch tests.
 
 Never replace the allowlist with a wildcard.
 

@@ -183,11 +183,9 @@ password. Read the [threat model](docs/THREAT_MODEL.md) for the full boundary.
 
 Lane registers a Chrome Native Messaging host for Transly when the packaged app
 starts. Chrome permits only explicitly allowlisted Transly extension IDs to call
-that host. The current allowlist contains the ID derived from Transly's
-development manifest key; it is not yet confirmed as the future Chrome Web
-Store item ID. Before a public release, create the Web Store item, copy its
-public key into Transly's manifest, verify that the unpacked ID matches the
-Dashboard item ID, and update Lane's allowlist if needed. Wildcards are never
+that host. The allowlist contains Transly's verified Chrome Web Store ID
+`mdjfkiddlpdgchddcckhcmdjekmmhcgp` and the intentionally retained unpacked
+development ID `lmpgipgoelkfcbdpboffkbhniifhicdd`. Wildcards are never
 accepted. The host returns the Lane URL, client key, and public model list; it
 never returns a provider API key or OAuth token.
 

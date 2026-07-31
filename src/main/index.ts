@@ -37,7 +37,6 @@ import { runLaneNativeHost } from "./native-messaging.ts";
 import { NativeMessagingInstaller } from "./native-messaging-install.ts";
 import { OAuthCoordinator } from "./oauth-coordinator.ts";
 import { SecretStore } from "./secret-store.ts";
-import { TRANSLY_EXTENSION_ORIGINS } from "../shared/native-messaging.ts";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
 const smokeMode = process.env.LANE_SMOKE_TEST === "1";
@@ -595,10 +594,10 @@ if (nativeCallerOrigin) {
       app.dock?.hide();
       const socketPath =
         process.env.LANE_CONTROL_SOCKET || getCliSocketPath(app.getPath("userData"));
-      const connect = async () => {
+      const connect = async (callerOrigin: string) => {
         const request = {
           command: "browser-client-connect" as const,
-          params: { origin: TRANSLY_EXTENSION_ORIGINS[0] },
+          params: { origin: callerOrigin },
         };
         try {
           return await requestCliControl(socketPath, request, 5_000);

@@ -14,7 +14,7 @@ export interface LaneNativeHostOptions {
   callerOrigin: string;
   stdin?: Readable;
   stdout?: Writable;
-  connect(): Promise<CliControlResponse>;
+  connect(callerOrigin: string): Promise<CliControlResponse>;
 }
 
 export function encodeNativeMessage(value: unknown): Buffer {
@@ -63,7 +63,7 @@ export async function runLaneNativeHost(options: LaneNativeHostOptions): Promise
       response = failure("CALLER_NOT_ALLOWED", "This extension is not allowed to connect to Lane.");
     } else {
       parseConnectRequest(await readNativeMessage(options.stdin ?? process.stdin));
-      const result = await options.connect();
+      const result = await options.connect(options.callerOrigin);
       response = result.ok
         ? {
             protocolVersion: LANE_NATIVE_PROTOCOL_VERSION,

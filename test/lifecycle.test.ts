@@ -38,12 +38,15 @@ describe("persistence and lifecycle", () => {
     await expect(
       core.connectBrowserClient("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
     ).rejects.toThrow("not allowed");
-    const origin = TRANSLY_EXTENSION_ORIGINS[0];
-    const state = await core.connectBrowserClient(origin);
-    expect(state.gateway.running).toBe(true);
+    for (const origin of TRANSLY_EXTENSION_ORIGINS) {
+      const state = await core.connectBrowserClient(origin);
+      expect(state.gateway.running).toBe(true);
+    }
     const stored = await shared.configStore.load();
     expect(stored.gateway.autoStart).toBe(true);
-    expect(stored.gateway.allowedOrigins).toContain(origin);
+    expect(stored.gateway.allowedOrigins).toEqual(
+      expect.arrayContaining([...TRANSLY_EXTENSION_ORIGINS]),
+    );
     await core.shutdown();
   });
 

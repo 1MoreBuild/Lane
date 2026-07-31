@@ -13,6 +13,7 @@ import {
   TRANSLY_DEVELOPMENT_EXTENSION_ID,
   TRANSLY_EXTENSION_ORIGINS,
   TRANSLY_NATIVE_ALLOWED_ORIGINS,
+  TRANSLY_PRODUCTION_EXTENSION_ID,
 } from "../src/shared/native-messaging.ts";
 import { tempPath } from "./helpers.ts";
 
@@ -49,7 +50,9 @@ describe("Lane native messaging", () => {
       stdout: output,
       connect,
     })).resolves.toBe(0);
-    expect(connect).toHaveBeenCalledOnce();
+    expect(connect).toHaveBeenCalledWith(
+      `chrome-extension://${TRANSLY_PRODUCTION_EXTENSION_ID}/`,
+    );
     expect(decodeFrame(Buffer.concat(chunks))).toMatchObject({
       protocolVersion: LANE_NATIVE_PROTOCOL_VERSION,
       ok: true,
@@ -130,7 +133,12 @@ describe("Lane native messaging", () => {
       allowed_origins: TRANSLY_NATIVE_ALLOWED_ORIGINS,
     });
     expect(TRANSLY_EXTENSION_ORIGINS).toEqual([
+      `chrome-extension://${TRANSLY_PRODUCTION_EXTENSION_ID}`,
       `chrome-extension://${TRANSLY_DEVELOPMENT_EXTENSION_ID}`,
+    ]);
+    expect(TRANSLY_NATIVE_ALLOWED_ORIGINS).toEqual([
+      `chrome-extension://${TRANSLY_PRODUCTION_EXTENSION_ID}/`,
+      `chrome-extension://${TRANSLY_DEVELOPMENT_EXTENSION_ID}/`,
     ]);
   });
 });
