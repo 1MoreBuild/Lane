@@ -15,6 +15,10 @@ rollback path.
   DMGs as a GitHub prerelease. Each DMG is installed and driven through the
   complete provider, gateway, API, security, and restart journey on a native
   runner before publishing. These builds are for early feedback only.
+- While signing is unavailable, the same workflow can be dispatched manually
+  with a stable SemVer tag and the explicit confirmation `UNSIGNED`. It still
+  publishes a GitHub prerelease, never enables automatic updates, and must not
+  be described as signed, notarized, or Apple-trusted.
 - Windows NSIS x64 packaging and packaged-product E2E run on a Windows host for
   the UI, API, security, persistence, port-conflict, and CLI journeys. Windows
   Native Messaging is not shipped until Lane has a dedicated binary host.
