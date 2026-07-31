@@ -1,15 +1,13 @@
 import { readFile } from "node:fs/promises";
 
 const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-const workflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-const releaseWorkflow = await readFile(
-  new URL("../.github/workflows/release-macos-test.yml", import.meta.url),
-  "utf8",
-);
-const stableReleaseWorkflow = await readFile(
-  new URL("../.github/workflows/release.yml", import.meta.url),
-  "utf8",
-);
+async function readWorkflow(path) {
+  return (await readFile(new URL(path, import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+}
+
+const workflow = await readWorkflow("../.github/workflows/ci.yml");
+const releaseWorkflow = await readWorkflow("../.github/workflows/release-macos-test.yml");
+const stableReleaseWorkflow = await readWorkflow("../.github/workflows/release.yml");
 
 const failures = [];
 if (Object.keys(pkg.scripts ?? {}).some((name) => name.startsWith("smoke"))) {
