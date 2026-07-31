@@ -1,18 +1,23 @@
 # Third-party notices
 
-Lane uses `@earendil-works/pi-ai` version 0.83.0 as its provider and model protocol
-core.
+Lane includes or bundles the following projects. Their licenses remain
+applicable to their respective code and assets.
 
-- Project: [earendil-works/pi](https://github.com/earendil-works/pi)
-- Package: `@earendil-works/pi-ai`
-- License: MIT
+| Project | Version | License |
+| --- | --- | --- |
+| `@earendil-works/pi-ai` | 0.83.0 | MIT |
+| Base UI | 1.6.0 | MIT |
+| Inter | 5.3.0 package | OFL-1.1 |
+| Lobe Icons | 1.94.0 | MIT |
+| Class Variance Authority | 0.7.1 | Apache-2.0 |
+| clsx | 2.1.1 | MIT |
+| Lucide | 1.27.0 | ISC |
+| next-themes | 0.4.6 | MIT |
+| React and React DOM | 19.2.8 | MIT |
+| tailwind-merge | 3.6.0 | MIT |
+| Tailwind CSS | 4.3.3 | MIT |
+| tw-animate-css | 1.4.0 | MIT |
 
-The package metadata, repository license, and current exported API were reviewed
-before this implementation was written.
-
-Lane uses selected provider marks from `@lobehub/icons-static-svg` version
-1.94.0. Only the OpenAI, Anthropic, and OpenRouter SVGs are bundled.
-
-- Project: [Lobe Icons](https://github.com/lobehub/lobe-icons)
-- Package: `@lobehub/icons-static-svg`
-- License: MIT
+Source and license texts are available from each package's published npm
+distribution. Electron also includes its own Chromium and Node.js notices in
+the packaged application.

@@ -44,10 +44,10 @@ installer creates a symlink to the packaged executable after the system
 authorization dialog. The launcher is independent of the renderer and can wake
 Lane without opening the main window.
 
-The packaged app also registers a Chrome Native Messaging host for an explicit
-Transly extension-ID allowlist. It contains the verified production Web Store
-ID `mdjfkiddlpdgchddcckhcmdjekmmhcgp` and the intentionally retained unpacked
-development ID `lmpgipgoelkfcbdpboffkbhniifhicdd`:
+The packaged app also registers a Chrome Native Messaging host for the explicit
+Transly extension ID `mdjfkiddlpdgchddcckhcmdjekmmhcgp`. This ID is derived
+from Transly's verified Chrome Web Store public key; the same key in Transly's
+manifest gives unpacked and store builds the same ID:
 
 ```text
 Transly service worker
@@ -86,7 +86,8 @@ configuration remains available in Transly when Lane is not installed.
   origin and forwards that exact verified origin when requesting a browser-client
   connection over the private control socket. Production releases must confirm
   that the Web Store public key, unpacked extension ID, Dashboard item ID, and
-  Lane allowlist still agree.
+  Lane allowlist still agree. Persisted extension origins outside that allowlist
+  are removed when Lane loads its configuration.
 - `LaneLogger` keeps the latest 200 redacted activity entries in memory and
   mirrors them to daily JSONL files in Electron's application log directory.
   Startup reloads recent entries, removes files older than 7 days, enforces a

@@ -10,6 +10,11 @@ const releaseWorkflow = await readFile(
 const failures = [];
 if (pkg.build?.appId !== "works.earendil.lane") failures.push("missing stable appId");
 if (pkg.build?.asar !== true) failures.push("ASAR packaging must remain enabled");
+if (pkg.license !== "0BSD") failures.push("project license must be 0BSD");
+if (!pkg.build?.files?.includes("LICENSE")) failures.push("package omits project license");
+if (!pkg.build?.files?.includes("THIRD_PARTY_NOTICES.md")) {
+  failures.push("package omits third-party notices");
+}
 if (pkg.build?.disableAsarIntegrity === true) {
   failures.push("ASAR integrity hash computation must not be disabled");
 }
@@ -34,11 +39,17 @@ if (!winTarget?.arch?.includes("x64") || !winTarget?.arch?.includes("arm64")) {
 }
 if (!workflow.includes("windows-latest")) failures.push("CI lacks a Windows job");
 if (!workflow.includes("npm run validate:packaging")) failures.push("CI does not validate packaging");
+if (!workflow.includes("permissions:\n  contents: read")) {
+  failures.push("CI permissions are not read-only");
+}
+if (/uses:\s+actions\/[^@\s]+@v\d+/.test(`${workflow}\n${releaseWorkflow}`)) {
+  failures.push("GitHub Actions must be pinned to full commit SHAs");
+}
 if (!releaseWorkflow.includes('tags: ["v*-test.*"]')) {
   failures.push("test release workflow lacks a narrow tag trigger");
 }
-if (!releaseWorkflow.includes("contents: write")) {
-  failures.push("test release workflow cannot create GitHub Releases");
+if (!releaseWorkflow.includes("publish:\n") || !releaseWorkflow.includes("      contents: write")) {
+  failures.push("release publish job cannot create GitHub Releases");
 }
 if (!releaseWorkflow.includes("npm run smoke:dmg:mac")) {
   failures.push("test release workflow does not install-smoke the DMG");

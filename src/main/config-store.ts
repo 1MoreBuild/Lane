@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { LaneConfig, ProviderConfig } from "../shared/contracts.ts";
+import { isAllowedTranslyExtensionOrigin } from "../shared/native-messaging.ts";
 
 const DEFAULT_PORT = 3210;
 
@@ -68,6 +69,11 @@ export function validateConfig(value: unknown): LaneConfig {
   ) {
     throw new Error("CORS origins must be explicit");
   }
+  const allowedOrigins = origins.filter(
+    (origin) =>
+      !origin.startsWith("chrome-extension://") ||
+      isAllowedTranslyExtensionOrigin(origin),
+  );
   if (!Array.isArray(input.providers) || !input.providers.every(isProviderConfig)) {
     throw new Error("Invalid provider settings");
   }
@@ -76,7 +82,7 @@ export function validateConfig(value: unknown): LaneConfig {
     gateway: {
       port,
       autoStart: input.gateway?.autoStart === true,
-      allowedOrigins: [...origins],
+      allowedOrigins,
     },
     providers: [...input.providers],
     ...(typeof input.defaultModel === "string" ? { defaultModel: input.defaultModel } : {}),
@@ -101,7 +107,15 @@ export class ConfigStore {
 
   async load(): Promise<LaneConfig> {
     try {
-      return validateConfig(JSON.parse(await readFile(this.filePath, "utf8")));
+      const parsed = JSON.parse(await readFile(this.filePath, "utf8")) as Partial<LaneConfig>;
+      const config = validateConfig(parsed);
+      if (
+        JSON.stringify(parsed.gateway?.allowedOrigins) !==
+        JSON.stringify(config.gateway.allowedOrigins)
+      ) {
+        await this.save(config);
+      }
+      return config;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return defaultConfig();
       throw error;

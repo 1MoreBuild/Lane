@@ -6,6 +6,7 @@ rollback path.
 
 ## Current release boundary
 
+- The source repository is public under the permissive 0BSD license.
 - macOS arm64 builds and launch/CLI smoke tests run on the current Mac.
 - macOS output is unsigned. It is suitable for local testing, not public
   download.
@@ -21,14 +22,12 @@ rollback path.
 
 ## Before the first public beta
 
-1. Decide when the source repository should become public. Lane is licensed
-   under MIT; repository visibility remains a separate release decision.
-2. Confirm the product name, `works.earendil.lane` application identifier,
+1. Confirm the product name, `works.earendil.lane` application identifier,
    versioning policy, support address, privacy statement, and release owner.
-3. Protect `main` and require the CI workflow for pull requests.
-4. Add a release workflow that builds only from a version tag and publishes
+2. Protect `main` and require the CI workflow for pull requests.
+3. Add a release workflow that builds only from a version tag and publishes
    immutable artifacts, SHA-256 checksums, and release notes.
-5. Keep signing credentials in the release environment's secret store. Never
+4. Keep signing credentials in the release environment's secret store. Never
    commit certificates, private keys, API keys, or notarization credentials.
 
 ### Chrome Web Store integration gate
@@ -40,8 +39,8 @@ production extension ID is:
 mdjfkiddlpdgchddcckhcmdjekmmhcgp
 ```
 
-Lane also intentionally allows the key-derived development ID
-`lmpgipgoelkfcbdpboffkbhniifhicdd` for local unpacked builds.
+Transly's checked-in Web Store public key gives local unpacked and store builds
+this same production ID.
 
 Before each public Lane release:
 
@@ -49,7 +48,7 @@ Before each public Lane release:
 2. Confirm the unpacked extension ID and Dashboard item ID still match the
    production ID above.
 3. Confirm Lane's Native Messaging and CORS allowlists contain exactly the
-   production ID and any intentionally supported development IDs.
+   production ID.
 4. Run the Native Messaging allowlist and packaged launch tests.
 
 Never replace the allowlist with a wildcard.

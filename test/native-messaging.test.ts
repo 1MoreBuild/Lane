@@ -10,7 +10,6 @@ import { NativeMessagingInstaller } from "../src/main/native-messaging-install.t
 import {
   LANE_NATIVE_HOST_NAME,
   LANE_NATIVE_PROTOCOL_VERSION,
-  TRANSLY_DEVELOPMENT_EXTENSION_ID,
   TRANSLY_EXTENSION_ORIGINS,
   TRANSLY_NATIVE_ALLOWED_ORIGINS,
   TRANSLY_PRODUCTION_EXTENSION_ID,
@@ -134,11 +133,9 @@ describe("Lane native messaging", () => {
     });
     expect(TRANSLY_EXTENSION_ORIGINS).toEqual([
       `chrome-extension://${TRANSLY_PRODUCTION_EXTENSION_ID}`,
-      `chrome-extension://${TRANSLY_DEVELOPMENT_EXTENSION_ID}`,
     ]);
     expect(TRANSLY_NATIVE_ALLOWED_ORIGINS).toEqual([
       `chrome-extension://${TRANSLY_PRODUCTION_EXTENSION_ID}/`,
-      `chrome-extension://${TRANSLY_DEVELOPMENT_EXTENSION_ID}/`,
     ]);
   });
 });
