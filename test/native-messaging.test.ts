@@ -73,10 +73,12 @@ describe("Lane native messaging", () => {
       type: "connect",
     }));
 
+    const onError = vi.fn();
     await expect(runLaneNativeHost({
       callerOrigin: TRANSLY_NATIVE_ALLOWED_ORIGINS[0],
       stdin: input,
       stdout: output,
+      onError,
       connect: async () => {
         throw new Error("connect ENOENT /Users/example/private/lane-control.sock");
       },
@@ -88,6 +90,11 @@ describe("Lane native messaging", () => {
         message: "Lane is unavailable.",
       },
     });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "connect ENOENT /Users/example/private/lane-control.sock",
+      }),
+    );
   });
 
   it("rejects every caller except the registered Transly extension", async () => {

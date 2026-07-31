@@ -749,6 +749,9 @@ if (nativeCallerOrigin) {
       const code = await runLaneNativeHost({
         callerOrigin: nativeCallerOrigin,
         connect,
+        onError: (error) => {
+          console.error(`Lane native messaging unavailable: ${redact(error)}`);
+        },
       });
       app.exit(code);
     })

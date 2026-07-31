@@ -1,3 +1,4 @@
+import { writeSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
 import type { CliControlResponse } from "./cli-control.ts";
 import {
@@ -15,6 +16,7 @@ export interface LaneNativeHostOptions {
   stdin?: Readable;
   stdout?: Writable;
   connect(callerOrigin: string): Promise<CliControlResponse>;
+  onError?(error: unknown): void;
 }
 
 export function encodeNativeMessage(value: unknown): Buffer {
@@ -72,11 +74,19 @@ export async function runLaneNativeHost(options: LaneNativeHostOptions): Promise
           }
         : failure(result.error.code, result.error.message, result.error.retryable);
     }
-  } catch {
+  } catch (error) {
+    options.onError?.(error);
     response = failure("LANE_UNAVAILABLE", "Lane is unavailable.", true);
   }
-  await new Promise<void>((resolve, reject) => {
-    output.write(encodeNativeMessage(response), (error) => (error ? reject(error) : resolve()));
-  });
+  const frame = encodeNativeMessage(response);
+  if (options.stdout) {
+    await new Promise<void>((resolve, reject) => {
+      output.write(frame, (error) => (error ? reject(error) : resolve()));
+    });
+  } else {
+    // Chrome requires byte-exact output. Writing the raw descriptor avoids
+    // Windows text-mode transformations that corrupt the 4-byte length header.
+    writeSync(1, frame);
+  }
   return response.ok ? 0 : 1;
 }
