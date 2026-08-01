@@ -1,8 +1,9 @@
 # Lane unsigned test build
 
-This prerelease is for early feedback. It is not signed or notarized by Apple.
-Download the Apple Silicon DMG for M-series Macs. Use the Intel DMG only for an
-Intel Mac.
+This prerelease is for early feedback. Its app bundle has an ad-hoc integrity
+signature, but it is not signed with an Apple Developer ID or notarized by
+Apple. Download the Apple Silicon DMG for M-series Macs. Use the Intel DMG only
+for an Intel Mac.
 
 ## Install
 

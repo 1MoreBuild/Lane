@@ -9,8 +9,9 @@ rollback path.
 - The source repository is public under the permissive MIT license.
 - Packaged macOS product E2E runs against a local mock provider on the current
   Mac.
-- macOS output is unsigned. It is suitable for local testing, not public
-  download.
+- Preview macOS output has a complete ad-hoc bundle signature so Gatekeeper does
+  not misreport it as damaged. It is still not Developer ID signed or notarized
+  and is suitable only for explicitly trusted early testers.
 - Tags matching `v*-test.*` create separate unsigned Apple Silicon and Intel
   DMGs as a GitHub prerelease. Each DMG is installed and driven through the
   complete provider, gateway, API, security, and restart journey on a native
@@ -73,9 +74,11 @@ Public downloads outside the Mac App Store need:
 - Apple notarization for the final DMG and a stapled notarization ticket;
 - verification on a clean Mac with Gatekeeper enabled.
 
-Unsigned test scripts disable signing identity discovery so ordinary CI and
-contributors do not accidentally select an unrelated local certificate. The
-stable release workflow supplies the intended identity and notarization
+Preview scripts disable signing identity discovery so ordinary CI and
+contributors do not accidentally select an unrelated local certificate. They
+explicitly select electron-builder's `identity=-` ad-hoc signing path, then
+require strict bundle-signature verification before product E2E or publishing.
+The stable release workflow supplies the intended identity and notarization
 credentials explicitly and sets `forceCodeSigning`.
 
 Stable version tags such as `v0.1.0` build separate Apple Silicon and Intel DMG

@@ -54,6 +54,17 @@ try {
 
   const executable = join(installedApp, "Contents", "MacOS", "Lane");
   await access(executable);
+  const signature = spawnSync(
+    "codesign",
+    ["--verify", "--deep", "--strict", "--verbose=4", installedApp],
+    { encoding: "utf8" },
+  );
+  if (signature.status !== 0) {
+    throw new Error(
+      `Installed app has an invalid bundle signature:\n${signature.stdout}\n${signature.stderr}`,
+    );
+  }
+
   const child = spawn("npm", ["run", "e2e"], {
     env: { ...process.env, LANE_E2E_APP_PATH: executable },
     stdio: "inherit",

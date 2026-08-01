@@ -46,6 +46,17 @@ if (!pkg.scripts?.["package:mac:arm64"]?.includes("CSC_IDENTITY_AUTO_DISCOVERY=f
 if (!pkg.scripts?.["package:mac:x64"]?.includes("CSC_IDENTITY_AUTO_DISCOVERY=false")) {
   failures.push("Intel test build may select an unintended signing identity");
 }
+for (const script of [
+  "package:mac",
+  "package:mac:arm64",
+  "package:mac:x64",
+  "package:e2e:mac:arm64",
+  "package:e2e:mac:x64",
+]) {
+  if (!pkg.scripts?.[script]?.includes("-c.mac.identity=-")) {
+    failures.push(`${script} must create a complete ad-hoc bundle signature`);
+  }
+}
 if (
   !pkg.scripts?.["package:mac:release"]?.includes("--arm64 --x64") ||
   !pkg.scripts?.["package:mac:release"]?.includes("forceCodeSigning=true") ||
@@ -112,6 +123,12 @@ if (!releaseWorkflow.includes("publish:\n") || !releaseWorkflow.includes("      
 }
 if (!releaseWorkflow.includes("npm run e2e:dmg:mac")) {
   failures.push("test release workflow does not run installed DMG E2E");
+}
+if (
+  !releaseWorkflow.includes("codesign --verify --deep --strict") ||
+  !releaseWorkflow.includes("Signature=adhoc")
+) {
+  failures.push("test release workflow does not reject malformed app bundle signatures");
 }
 if (!releaseWorkflow.includes("macos-latest") || !releaseWorkflow.includes("macos-15-intel")) {
   failures.push("test release workflow must build on native Apple Silicon and Intel runners");
