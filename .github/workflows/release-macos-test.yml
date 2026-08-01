@@ -59,8 +59,15 @@ jobs:
             node scripts/verify-release-tag.mjs "$RELEASE_TAG" test
           fi
 
-      - name: Build unsigned ${{ matrix.name }} DMG
+      - name: Build ad-hoc signed ${{ matrix.name }} DMG
         run: npm run package:mac:${{ matrix.arch }}
+
+      - name: Verify complete app bundle signature
+        run: |
+          app_path=$(find release -type d -name Lane.app -print -quit)
+          test -n "$app_path"
+          codesign --verify --deep --strict --verbose=4 "$app_path"
+          codesign -dvv "$app_path" 2>&1 | grep -q "Signature=adhoc"
 
       - name: Run installed product E2E
         env:
