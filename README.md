@@ -36,6 +36,7 @@ agent loop, or executes tool calls.
 ## Why Lane
 
 - Chat, Responses, and image generation through one API.
+- Standard and Fast response modes for OpenAI and ChatGPT / Codex.
 - ChatGPT / Codex, OpenAI, Anthropic, OpenRouter, and custom endpoints.
 - Credentials stay in Keychain-backed secure storage.
 - The gateway listens only on `127.0.0.1` and requires a separate Lane key.
@@ -68,7 +69,7 @@ the window; click it to download in place and restart into the new version.
 ## Start in three steps
 
 1. Open Lane and add a provider.
-2. Choose the default chat and image models.
+2. Choose the default model, reasoning effort, speed, and image model.
 3. Copy the API base URL and Lane client key into your client.
 
 Test the connection:
@@ -79,8 +80,11 @@ curl http://127.0.0.1:3210/v1/models \
 ```
 
 Lane supports `/v1/responses`, `/v1/chat/completions`, and
-`/v1/images/generations`, including streaming text responses. Tool calls are
-returned to the client; Lane never executes them.
+`/v1/images/generations`, including streaming text responses and base64 data
+URL image inputs for vision-capable models. Tool calls are returned to the
+client; Lane never executes them. Lane defaults reasoning effort to High and
+speed to Standard. A request can override either default with
+`reasoning.effort` / `reasoning_effort` and `service_tier`.
 
 | Provider | Sign in |
 | --- | --- |
@@ -103,6 +107,8 @@ gateway with stable JSON output without reading provider OAuth tokens.
 lane status --json --no-input
 lane connection --json --no-input
 lane models
+lane models set-effort --effort high
+lane models set-speed --speed fast
 lane start
 lane stop
 ```

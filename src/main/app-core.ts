@@ -7,6 +7,8 @@ import type {
   ProviderConfig,
   ProviderKind,
   ProviderStatus,
+  ReasoningEffort,
+  SpeedMode,
 } from "../shared/contracts.ts";
 import {
   isAllowedTranslyExtensionOrigin,
@@ -29,6 +31,7 @@ import type { SecretStore } from "./secret-store.ts";
 
 const CLIENT_KEY_SECRET = "lane:client-key";
 const PORT_RETRY_DELAYS_MS = [0, 100, 250, 500] as const;
+export const DEFAULT_CODEX_MODEL = "openai-codex/gpt-5.6-luna";
 
 const DEFAULT_NAMES: Record<Exclude<ProviderKind, "openai-codex">, string> = {
   openai: "OpenAI",
@@ -75,6 +78,7 @@ export class AppCore {
   readonly gateway: GatewayServer;
   private config: LaneConfig | undefined;
   private clientKey: string | undefined;
+  private effectiveDefaultModel: string | undefined;
   private effectiveDefaultImageModel: string | undefined;
 
   constructor(options: AppCoreOptions) {
@@ -119,6 +123,9 @@ export class AppCore {
   private rebuildRuntime(): void {
     if (!this.config) return;
     const models = buildModels(this.config.providers, this.credentials as CredentialStore);
+    this.effectiveDefaultModel =
+      this.config.defaultModel ??
+      (models.getModel("openai-codex", "gpt-5.6-luna") ? DEFAULT_CODEX_MODEL : undefined);
     const imageModels = buildImageModels(
       this.config.providers,
       this.credentials as CredentialStore,
@@ -139,8 +146,10 @@ export class AppCore {
       new PiAiRuntime(
         models,
         this.config.providers,
-        this.config.defaultModel,
+        this.effectiveDefaultModel,
         effectiveImages,
+        this.config.reasoningEffort,
+        this.config.speedMode,
       ),
     );
   }
@@ -302,6 +311,20 @@ export class AppCore {
     }
     await this.persist({ ...config, defaultImageModel: modelId });
     this.logger.info(`Default image model set to ${modelId}`);
+    return await this.getState();
+  }
+
+  async setSpeedMode(mode: SpeedMode): Promise<LaneState> {
+    const { config } = this.requireInitialized();
+    await this.persist({ ...config, speedMode: mode });
+    this.logger.info(`Speed set to ${mode}`);
+    return await this.getState();
+  }
+
+  async setReasoningEffort(effort: ReasoningEffort): Promise<LaneState> {
+    const { config } = this.requireInitialized();
+    await this.persist({ ...config, reasoningEffort: effort });
+    this.logger.info(`Reasoning effort set to ${effort}`);
     return await this.getState();
   }
 
@@ -500,10 +523,12 @@ export class AppCore {
       providers: await this.providerStatuses(config),
       models: await this.runtime.listModels(),
       imageModels: (await this.runtime.listImageModels?.()) ?? [],
-      ...(config.defaultModel ? { defaultModel: config.defaultModel } : {}),
+      ...(this.effectiveDefaultModel ? { defaultModel: this.effectiveDefaultModel } : {}),
       ...(this.effectiveDefaultImageModel
         ? { defaultImageModel: this.effectiveDefaultImageModel }
         : {}),
+      reasoningEffort: config.reasoningEffort,
+      speedMode: config.speedMode,
       launchAtLogin: config.launchAtLogin,
       visibility: { ...config.visibility },
       cliEnabled: config.cli.enabled,

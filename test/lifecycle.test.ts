@@ -26,6 +26,58 @@ const discover = async () => [
 ];
 
 describe("persistence and lifecycle", () => {
+  it("migrates legacy settings to High reasoning effort", async () => {
+    const settingsPath = await tempPath("legacy-settings.json");
+    const legacy = defaultConfig() as Partial<ReturnType<typeof defaultConfig>>;
+    delete legacy.reasoningEffort;
+    await writeFile(settingsPath, JSON.stringify(legacy));
+
+    expect((await new ConfigStore(settingsPath).load()).reasoningEffort).toBe("high");
+  });
+
+  it("uses GPT-5.6 Luna as the Codex default without overriding a saved choice", async () => {
+    const firstShared = await stores();
+    await firstShared.configStore.save({
+      ...defaultConfig(),
+      providers: [
+        {
+          id: "openai-codex",
+          kind: "openai-codex",
+          name: "ChatGPT / Codex",
+          models: [],
+          createdAt: 1,
+        },
+      ],
+    });
+    const first = new AppCore({ ...firstShared, discover });
+    await first.initialize();
+    expect((await first.getState()).defaultModel).toBe(
+      "openai-codex/gpt-5.6-luna",
+    );
+    await first.shutdown();
+
+    const secondShared = await stores();
+    await secondShared.configStore.save({
+      ...defaultConfig(),
+      providers: [
+        {
+          id: "openai-codex",
+          kind: "openai-codex",
+          name: "ChatGPT / Codex",
+          models: [],
+          createdAt: 1,
+        },
+      ],
+      defaultModel: "openai-codex/gpt-5.6-sol",
+    });
+    const second = new AppCore({ ...secondShared, discover });
+    await second.initialize();
+    expect((await second.getState()).defaultModel).toBe(
+      "openai-codex/gpt-5.6-sol",
+    );
+    await second.shutdown();
+  });
+
   it("authorizes a browser extension, starts the gateway, and persists automatic restore", async () => {
     const port = await freePort();
     const shared = await stores();
@@ -130,7 +182,9 @@ describe("persistence and lifecycle", () => {
     });
     const providerId = state.providers[0]!.id;
     await first.setDefaultModel(`${providerId}/mock-model`);
-    state = await first.setDefaultImageModel(`${providerId}/mock-image`);
+    await first.setDefaultImageModel(`${providerId}/mock-image`);
+    await first.setReasoningEffort("max");
+    state = await first.setSpeedMode("fast");
     const originalKey = state.clientKey;
     state = await first.startGateway();
     expect(state.gateway.running).toBe(true);
@@ -156,6 +210,8 @@ describe("persistence and lifecycle", () => {
     expect(state.gateway.running).toBe(true);
     expect(state.defaultModel).toBe(`${providerId}/mock-model`);
     expect(state.defaultImageModel).toBe(`${providerId}/mock-image`);
+    expect(state.reasoningEffort).toBe("max");
+    expect(state.speedMode).toBe("fast");
     expect(state.clientKey).toBe(originalKey);
     expect(state.launchAtLogin).toBe(true);
     expect(state.visibility).toEqual({

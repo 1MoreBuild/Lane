@@ -2,6 +2,7 @@ import {
   createModels,
   createProvider,
   envApiKeyAuth,
+  getSupportedThinkingLevels,
   type AssistantMessage,
   type Api,
   type Context,
@@ -17,7 +18,12 @@ import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
-import type { ProviderConfig, PublicModel } from "../shared/contracts.ts";
+import type {
+  ProviderConfig,
+  PublicModel,
+  ReasoningEffort,
+  SpeedMode,
+} from "../shared/contracts.ts";
 import { redact } from "./logger.ts";
 import type {
   CanonicalEvent,
@@ -169,6 +175,19 @@ function publicModels(models: Models, configs: readonly ProviderConfig[]): Publi
         id: `${config.id}/${model.id}`,
         provider: config.id,
         name: model.name,
+        reasoning: model.reasoning,
+        ...(model.reasoning
+          ? {
+              reasoningEfforts: getSupportedThinkingLevels(model).filter(
+                (level): level is ReasoningEffort =>
+                  level === "low" ||
+                  level === "medium" ||
+                  level === "high" ||
+                  level === "xhigh" ||
+                  level === "max",
+              ),
+            }
+          : {}),
       });
     }
   }
@@ -181,7 +200,14 @@ export class PiAiRuntime implements ModelRuntime {
     private readonly configs: readonly ProviderConfig[],
     private readonly defaultModel?: string,
     private readonly images?: PiAiImageRuntime,
+    private readonly defaultReasoningEffort: ReasoningEffort = "high",
+    private readonly defaultSpeedMode: SpeedMode = "standard",
   ) {}
+
+  private supportsSpeedMode(providerId: string): boolean {
+    const kind = this.configs.find((config) => config.id === providerId)?.kind;
+    return kind === "openai" || kind === "openai-codex";
+  }
 
   listModels(): PublicModel[] {
     return publicModels(this.models, this.configs);
@@ -221,10 +247,39 @@ export class PiAiRuntime implements ModelRuntime {
     signal: AbortSignal,
   ): AsyncIterable<CanonicalEvent> {
     const model = this.resolveModel(request.model);
-    const stream = this.models.stream(model, toContext(request, model), {
+    const reasoning =
+      request.reasoningEffort === "none"
+        ? undefined
+        : request.reasoningEffort ?? this.defaultReasoningEffort;
+    const supportsSpeedMode = this.supportsSpeedMode(model.provider);
+    if (request.speedMode === "fast" && !supportsSpeedMode) {
+      throw new RuntimeError(
+        "Fast speed is only available for OpenAI and ChatGPT / Codex models",
+        400,
+        "unsupported_speed_mode",
+      );
+    }
+    const speedMode = supportsSpeedMode
+      ? request.speedMode ?? this.defaultSpeedMode
+      : "standard";
+    const stream = this.models.streamSimple(model, toContext(request, model), {
       signal,
       ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
       ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
+      ...(model.reasoning && reasoning ? { reasoning } : {}),
+      ...(supportsSpeedMode
+        ? {
+            onPayload: (payload: unknown) => {
+              if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+                throw new RuntimeError("Provider request payload is invalid");
+              }
+              return {
+                ...payload,
+                service_tier: speedMode === "fast" ? "priority" : "default",
+              };
+            },
+          }
+        : {}),
       maxRetries: 0,
     });
     for await (const event of stream) {

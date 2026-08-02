@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { dirname, join } from "node:path";
-import type { AddProviderInput } from "../shared/contracts.ts";
+import type {
+  AddProviderInput,
+  ReasoningEffort,
+  SpeedMode,
+} from "../shared/contracts.ts";
 
 export const CLI_PROTOCOL_VERSION = 1;
 const MAX_REQUEST_BYTES = 16 * 1024;
@@ -21,6 +25,8 @@ export type CliControlCommand =
   | "providers-oauth"
   | "default-model-set"
   | "default-image-model-set"
+  | "reasoning-effort-set"
+  | "speed-mode-set"
   | "browser-client-connect";
 
 export interface CliControlRequest {
@@ -30,6 +36,8 @@ export interface CliControlRequest {
     provider?: AddProviderInput;
     providerId?: string;
     modelId?: string;
+    reasoningEffort?: ReasoningEffort;
+    speedMode?: SpeedMode;
     origin?: string;
   };
 }
@@ -75,6 +83,8 @@ function isCommand(value: unknown): value is CliControlCommand {
     "providers-oauth",
     "default-model-set",
     "default-image-model-set",
+    "reasoning-effort-set",
+    "speed-mode-set",
     "browser-client-connect",
   ].includes(String(value));
 }
@@ -119,6 +129,21 @@ function parseRequest(value: unknown): CliControlRequest {
     (typeof params?.origin !== "string" || !params.origin)
   ) {
     throw new Error("Browser extension origin is required");
+  }
+  if (
+    request.command === "reasoning-effort-set" &&
+    !["low", "medium", "high", "xhigh", "max"].includes(
+      params?.reasoningEffort ?? "",
+    )
+  ) {
+    throw new Error("Effort must be low, medium, high, xhigh, or max");
+  }
+  if (
+    request.command === "speed-mode-set" &&
+    params?.speedMode !== "standard" &&
+    params?.speedMode !== "fast"
+  ) {
+    throw new Error("Speed must be standard or fast");
   }
   return {
     version: CLI_PROTOCOL_VERSION,

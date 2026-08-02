@@ -66,7 +66,89 @@ describe("OpenAI protocol adapters", () => {
       input: [{ role: "user", content: [{ type: "input_text", text: "Hello" }] }],
     });
     expect(request.systemPrompt).toBe("Be concise.");
-    expect(request.messages).toEqual([{ role: "user", content: "Hello" }]);
+    expect(request.messages).toEqual([
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+    ]);
+  });
+
+  it("preserves image input from Chat Completions and Responses", () => {
+    const dataUrl = "data:image/png;base64,aW1hZ2U=";
+    const chat = parseChatRequest({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What is this?" },
+            { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
+          ],
+        },
+      ],
+    });
+    const responses = parseResponsesRequest({
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: "What is this?" },
+            { type: "input_image", image_url: dataUrl },
+          ],
+        },
+      ],
+    });
+    const expected = [
+      { type: "text", text: "What is this?" },
+      { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+    ];
+    expect(chat.messages[0]).toEqual({ role: "user", content: expected });
+    expect(responses.messages[0]).toEqual({ role: "user", content: expected });
+  });
+
+  it("rejects remote image URLs instead of silently dropping them", () => {
+    expect(() =>
+      parseChatRequest({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image_url", image_url: { url: "https://example.com/image.png" } },
+            ],
+          },
+        ],
+      }),
+    ).toThrow("base64 data URLs");
+  });
+
+  it("maps client reasoning effort overrides", () => {
+    expect(
+      parseChatRequest({
+        messages: [{ role: "user", content: "Hello" }],
+        reasoning_effort: "low",
+      }).reasoningEffort,
+    ).toBe("low");
+    expect(
+      parseResponsesRequest({
+        input: "Hello",
+        reasoning: { effort: "none" },
+      }).reasoningEffort,
+    ).toBe("none");
+  });
+
+  it("maps only the Standard and Fast service tiers", () => {
+    expect(
+      parseChatRequest({
+        messages: [{ role: "user", content: "Hello" }],
+        service_tier: "default",
+      }).speedMode,
+    ).toBe("standard");
+    expect(
+      parseResponsesRequest({ input: "Hello", service_tier: "fast" }).speedMode,
+    ).toBe("fast");
+    expect(
+      parseResponsesRequest({ input: "Hello", service_tier: "priority" }).speedMode,
+    ).toBe("fast");
+    expect(
+      parseResponsesRequest({ input: "Hello", service_tier: "auto" }).speedMode,
+    ).toBe("standard");
   });
 
   it("maps Responses function calls and outputs without executing them", () => {

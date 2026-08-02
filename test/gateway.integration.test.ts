@@ -10,14 +10,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GatewayServer } from "../src/main/gateway.ts";
 import { buildImageModels, PiAiImageRuntime } from "../src/main/image-runtime.ts";
 import { PiAiRuntime } from "../src/main/pi-runtime.ts";
-import type { ProviderConfig } from "../src/shared/contracts.ts";
+import type { ProviderConfig, ReasoningEffort } from "../src/shared/contracts.ts";
 import { freePort } from "./helpers.ts";
 import { startMockOpenAI, type MockOpenAI } from "./mock-openai.ts";
 
 const clientKey = "lane-e2e-client-key";
 const resources: Array<{ gateway: GatewayServer; upstream: MockOpenAI }> = [];
 
-async function setup() {
+async function setup(options: {
+  runtimeKind?: ProviderConfig["kind"];
+  defaultReasoningEffort?: ReasoningEffort;
+  defaultSpeedMode?: "standard" | "fast";
+} = {}) {
   const upstream = await startMockOpenAI();
   const credentials = new InMemoryCredentialStore();
   await credentials.modify("mock", async () => ({ type: "api_key", key: "mock-upstream-key" }));
@@ -27,12 +31,20 @@ async function setup() {
     api: "openai-completions",
     provider: "mock",
     baseUrl: upstream.baseUrl,
-    reasoning: false,
-    input: ["text"],
+    reasoning: true,
+    input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 10_000,
     maxTokens: 1_000,
-    compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
+    thinkingLevelMap: {
+      off: "none",
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: "xhigh",
+      max: "max",
+    },
+    compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
   };
   const models = createModels({
     credentials,
@@ -62,7 +74,14 @@ async function setup() {
     "mock/mock-image",
   );
   const gateway = new GatewayServer(
-    new PiAiRuntime(models, [config], "mock/mock-model", imageRuntime),
+    new PiAiRuntime(
+      models,
+      [{ ...config, kind: options.runtimeKind ?? "openai" }],
+      "mock/mock-model",
+      imageRuntime,
+      options.defaultReasoningEffort,
+      options.defaultSpeedMode,
+    ),
   );
   const port = await freePort();
   await gateway.start(
@@ -161,6 +180,128 @@ describe("gateway with a local pi-ai mock provider", () => {
         output_format: "webp",
       },
     });
+  });
+
+  it("forwards image inputs and applies configurable default effort", async () => {
+    const { url, upstream } = await setup({ defaultReasoningEffort: "xhigh" });
+    const dataUrl = "data:image/png;base64,aW1hZ2U=";
+
+    for (const request of [
+      {
+        path: "/v1/chat/completions",
+        body: {
+          model: "mock/mock-model",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Describe this" },
+                { type: "image_url", image_url: { url: dataUrl } },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        path: "/v1/responses",
+        body: {
+          model: "mock/mock-model",
+          reasoning: { effort: "medium" },
+          input: [
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: "Describe this" },
+                { type: "input_image", image_url: dataUrl },
+              ],
+            },
+          ],
+        },
+      },
+    ]) {
+      const response = await fetch(`${url}${request.path}`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(request.body),
+      });
+      expect(response.status).toBe(200);
+    }
+
+    const requests = upstream.requests.filter(
+      (request) => request.path === "/v1/chat/completions",
+    );
+    expect(requests).toHaveLength(2);
+    for (const [index, request] of requests.entries()) {
+      expect(request.body).toMatchObject({
+        reasoning_effort: index === 0 ? "xhigh" : "medium",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Describe this" },
+              { type: "image_url", image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+      });
+    }
+  });
+
+  it("supports only Standard and Fast speed modes", async () => {
+    const { url, upstream } = await setup();
+    const standard = await fetch(`${url}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ input: "standard" }),
+    });
+    const fast = await fetch(`${url}/v1/chat/completions`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "fast" }],
+        service_tier: "fast",
+      }),
+    });
+    const auto = await fetch(`${url}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ input: "auto", service_tier: "auto" }),
+    });
+
+    expect(standard.status).toBe(200);
+    expect(fast.status).toBe(200);
+    expect(auto.status).toBe(200);
+
+    const requests = upstream.requests.filter(
+      (request) => request.path === "/v1/chat/completions",
+    );
+    expect(requests.at(-3)?.body).toMatchObject({ service_tier: "default" });
+    expect(requests.at(-2)?.body).toMatchObject({ service_tier: "priority" });
+    expect(requests.at(-1)?.body).toMatchObject({ service_tier: "default" });
+  });
+
+  it("uses Standard safely on other providers unless Fast is explicitly requested", async () => {
+    const { url, upstream } = await setup({
+      runtimeKind: "custom-openai",
+      defaultSpeedMode: "fast",
+    });
+    const fallback = await fetch(`${url}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ input: "fallback" }),
+    });
+    const explicitFast = await fetch(`${url}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ input: "fast", service_tier: "fast" }),
+    });
+
+    expect(fallback.status).toBe(200);
+    expect(explicitFast.status).toBe(400);
+    expect((await explicitFast.json() as any).error.code).toBe(
+      "unsupported_speed_mode",
+    );
+    expect(upstream.requests.at(-1)?.body).not.toHaveProperty("service_tier");
   });
 
   it("streams both Responses and Chat Completions events", async () => {

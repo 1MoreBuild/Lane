@@ -17,6 +17,8 @@ export function defaultConfig(): LaneConfig {
       ],
     },
     providers: [],
+    reasoningEffort: "high",
+    speedMode: "standard",
     launchAtLogin: false,
     visibility: {
       showDockIcon: true,
@@ -89,6 +91,12 @@ export function validateConfig(value: unknown): LaneConfig {
     ...(typeof input.defaultImageModel === "string"
       ? { defaultImageModel: input.defaultImageModel }
       : {}),
+    reasoningEffort: ["low", "medium", "high", "xhigh", "max"].includes(
+      input.reasoningEffort ?? "",
+    )
+      ? input.reasoningEffort as LaneConfig["reasoningEffort"]
+      : "high",
+    speedMode: input.speedMode === "fast" ? "fast" : "standard",
     launchAtLogin: input.launchAtLogin === true,
     visibility: {
       showDockIcon: input.visibility?.showDockIcon !== false,

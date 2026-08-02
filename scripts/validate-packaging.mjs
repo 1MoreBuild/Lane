@@ -8,8 +8,13 @@ async function readWorkflow(path) {
 const workflow = await readWorkflow("../.github/workflows/ci.yml");
 const releaseWorkflow = await readWorkflow("../.github/workflows/release-macos-test.yml");
 const stableReleaseWorkflow = await readWorkflow("../.github/workflows/release.yml");
+const productE2E = await readWorkflow("../e2e/lane.e2e.spec.ts");
+const dmgE2E = await readWorkflow("./e2e-dmg.mjs");
 
 const failures = [];
+if (/\.\.\.process\.env/.test(`${productE2E}\n${dmgE2E}`)) {
+  failures.push("product E2E must not copy arbitrary host secrets into child processes");
+}
 if (Object.keys(pkg.scripts ?? {}).some((name) => name.startsWith("smoke"))) {
   failures.push("release validation must use product E2E instead of smoke scripts");
 }
@@ -58,9 +63,11 @@ for (const script of [
   }
 }
 if (
-  !pkg.scripts?.["package:mac:release"]?.includes("--arm64 --x64") ||
-  !pkg.scripts?.["package:mac:release"]?.includes("forceCodeSigning=true") ||
-  !pkg.scripts?.["package:mac:release"]?.includes("build:release")
+  !pkg.scripts?.["package:mac:release:dist"]?.includes("--arm64 --x64") ||
+  !pkg.scripts?.["package:mac:release:dist"]?.includes("forceCodeSigning=true") ||
+  !pkg.scripts?.["package:mac:release:prepare"]?.includes("build:release") ||
+  !pkg.scripts?.["package:mac:release"]?.includes("package:mac:release:prepare") ||
+  !pkg.scripts?.["package:mac:release"]?.includes("package:mac:release:dist")
 ) {
   failures.push("stable macOS release lacks signing, updater, or per-architecture builds");
 }
@@ -139,8 +146,24 @@ if (!releaseWorkflow.includes("gh release create")) {
 if (!releaseWorkflow.includes("--prerelease")) {
   failures.push("unsigned macOS releases must remain GitHub prereleases");
 }
-if (!stableReleaseWorkflow.includes("npm run package:mac:release")) {
+if (
+  !stableReleaseWorkflow.includes("npm run package:mac:release:prepare") ||
+  !stableReleaseWorkflow.includes("npm run package:mac:release:dist")
+) {
   failures.push("stable release workflow does not build updater artifacts");
+}
+const stableBuildHeader = stableReleaseWorkflow.slice(
+  stableReleaseWorkflow.indexOf("  build:"),
+  stableReleaseWorkflow.indexOf("    steps:"),
+);
+if (/^ {4}env:/m.test(stableBuildHeader)) {
+  failures.push("signing credentials must not be available to the entire release job");
+}
+if (
+  stableReleaseWorkflow.indexOf("npm run package:mac:release:prepare") >
+  stableReleaseWorkflow.indexOf("secrets.MAC_CSC_LINK")
+) {
+  failures.push("release preparation must run before signing credentials enter scope");
 }
 if (
   !stableReleaseWorkflow.includes(

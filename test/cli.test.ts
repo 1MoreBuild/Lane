@@ -27,6 +27,8 @@ const status: CliControlResponse = {
     gateway: { running: true, api_base_url: "http://127.0.0.1:3210/v1" },
     default_model: "openai-codex/gpt-5.6-sol",
     default_image_model: "openai-codex/gpt-image-2",
+    reasoning_effort: "high",
+    speed_mode: "standard",
     providers: { connected: 1, total: 1 },
   },
 };
@@ -134,6 +136,52 @@ describe("Lane CLI", () => {
         command: "default-image-model-set",
         params: { modelId: "openai-codex/gpt-image-2" },
       },
+      5_000,
+    );
+  });
+
+  it("sets Standard or Fast through the agent-facing control protocol", async () => {
+    const output = capture();
+    const request = vi.fn(async () => ({
+      ok: true as const,
+      data: { speed_mode: "fast" },
+    }));
+    const code = await runLaneCli(
+      ["models", "set-speed", "--speed", "fast", "--json", "--no-input"],
+      {
+        socketPath: "unused",
+        version: "0.1.0",
+        io: output.io,
+        request,
+      },
+    );
+    expect(code).toBe(0);
+    expect(request).toHaveBeenCalledWith(
+      "unused",
+      { command: "speed-mode-set", params: { speedMode: "fast" } },
+      5_000,
+    );
+  });
+
+  it("sets reasoning effort through the agent-facing control protocol", async () => {
+    const output = capture();
+    const request = vi.fn(async () => ({
+      ok: true as const,
+      data: { reasoning_effort: "max" },
+    }));
+    const code = await runLaneCli(
+      ["models", "set-effort", "--effort", "max", "--json", "--no-input"],
+      {
+        socketPath: "unused",
+        version: "0.1.0",
+        io: output.io,
+        request,
+      },
+    );
+    expect(code).toBe(0);
+    expect(request).toHaveBeenCalledWith(
+      "unused",
+      { command: "reasoning-effort-set", params: { reasoningEffort: "max" } },
       5_000,
     );
   });

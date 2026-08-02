@@ -106,7 +106,20 @@ in Transly when Lane is not installed.
   download also retains the standard install-on-quit fallback if the immediate
   relaunch is interrupted.
 - The protocol module maps both OpenAI Responses and Chat Completions onto the
-  same canonical request/event model.
+  same canonical request/event model. User content retains ordered text and
+  image parts; image data URLs are decoded into pi-ai's provider-neutral image
+  content instead of being flattened into text.
+- Response speed has two product states: Standard and Fast. The persisted
+  default can be overridden per request with OpenAI's `service_tier` field.
+  Lane treats `auto` and `default` as Standard, then maps Standard to `default`
+  and Fast or `priority` to `priority` immediately before
+  pi-ai sends an OpenAI or ChatGPT / Codex payload. Other providers reject an
+  explicit Fast request rather than silently ignoring it.
+- Reasoning effort is persisted independently from the default model. The UI
+  presents Light, Medium, High, Extra High, and Ultra, mapped to pi-ai's `low`,
+  `medium`, `high`, `xhigh`, and `max` levels. High is the initial default. A
+  request-level `reasoning.effort` or `reasoning_effort` value takes precedence;
+  pi-ai applies the effective value only to reasoning-capable models.
 - Image generation has its own canonical one-shot request/result model. It uses
   pi-ai's `ImagesModels` collection and does not enter the chat streaming or
   tool-call path.
@@ -174,8 +187,9 @@ hands the signed package to the platform updater.
 
 ## Compatibility policy
 
-The HTTP surface follows the common text and function-call subset of OpenAI
-Responses and Chat Completions plus one-shot OpenAI Images generations. Each
-supported provider is still constrained by its own model and protocol
+The HTTP surface follows the common text, base64 image-input, and function-call
+subset of OpenAI Responses and Chat Completions plus one-shot OpenAI Images
+generations. Remote image URLs are rejected rather than fetched by the gateway.
+Each supported provider is still constrained by its own model and protocol
 capabilities. Lane returns an explicit OpenAI-shaped error when a request cannot
 be represented; it does not invent missing provider semantics.
