@@ -30,6 +30,26 @@ const dmg = join(
 );
 let mounted = false;
 
+function e2eEnvironment(extra = {}) {
+  const inherited = Object.fromEntries(
+    [
+      "PATH",
+      "HOME",
+      "TMPDIR",
+      "USER",
+      "LOGNAME",
+      "SHELL",
+      "LANG",
+      "LC_ALL",
+      "CI",
+      "NO_COLOR",
+      "FORCE_COLOR",
+      "__CF_USER_TEXT_ENCODING",
+    ].flatMap((key) => process.env[key] === undefined ? [] : [[key, process.env[key]]]),
+  );
+  return { ...inherited, ...extra };
+}
+
 try {
   await access(dmg);
   const attached = spawnSync(
@@ -66,7 +86,7 @@ try {
   }
 
   const child = spawn("npm", ["run", "e2e"], {
-    env: { ...process.env, LANE_E2E_APP_PATH: executable },
+    env: e2eEnvironment({ LANE_E2E_APP_PATH: executable }),
     stdio: "inherit",
   });
   const exitCode = await new Promise((resolve, reject) => {

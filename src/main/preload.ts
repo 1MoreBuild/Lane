@@ -6,6 +6,8 @@ import type {
   LaneState,
   LaneUpdateState,
   OAuthUiEvent,
+  ReasoningEffort,
+  SpeedMode,
 } from "../shared/contracts.ts";
 
 const api: LaneRendererApi = {
@@ -25,6 +27,10 @@ const api: LaneRendererApi = {
     ipcRenderer.invoke("lane:set-default-model", modelId) as Promise<LaneState>,
   setDefaultImageModel: (modelId: string) =>
     ipcRenderer.invoke("lane:set-default-image-model", modelId) as Promise<LaneState>,
+  setReasoningEffort: (effort: ReasoningEffort) =>
+    ipcRenderer.invoke("lane:set-reasoning-effort", effort) as Promise<LaneState>,
+  setSpeedMode: (mode: SpeedMode) =>
+    ipcRenderer.invoke("lane:set-speed-mode", mode) as Promise<LaneState>,
   startGateway: () => ipcRenderer.invoke("lane:start-gateway") as Promise<LaneState>,
   stopGateway: () => ipcRenderer.invoke("lane:stop-gateway") as Promise<LaneState>,
   setLaunchAtLogin: (enabled: boolean) =>

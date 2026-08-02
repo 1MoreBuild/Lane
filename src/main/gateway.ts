@@ -21,7 +21,8 @@ import {
   LOOPBACK_HOST,
 } from "./security.ts";
 
-const MAX_BODY_BYTES = 2 * 1024 * 1024;
+// A 20 MiB input image expands by roughly one third when encoded as a data URL.
+const MAX_BODY_BYTES = 30 * 1024 * 1024;
 
 export class GatewayStartError extends Error {
   constructor(
@@ -95,7 +96,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
     if (size > MAX_BODY_BYTES) {
-      throw new RuntimeError("Request body exceeds 2 MiB", 413, "request_too_large");
+      throw new RuntimeError("Request body exceeds 30 MiB", 413, "request_too_large");
     }
     chunks.push(buffer);
   }

@@ -1,14 +1,31 @@
 import { randomUUID } from "node:crypto";
 import type {
   CanonicalEvent,
+  CanonicalImageContent,
   CanonicalMessage,
+  CanonicalReasoningEffort,
   CanonicalRequest,
+  CanonicalSpeedMode,
+  CanonicalTextContent,
+  CanonicalUserContent,
   CanonicalTool,
   CanonicalToolCall,
 } from "./runtime.ts";
 import { RuntimeError } from "./runtime.ts";
 
 type JsonObject = Record<string, unknown>;
+
+const IMAGE_DATA_URL = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/i;
+const MAX_INPUT_IMAGE_BYTES = 20 * 1024 * 1024;
+const REASONING_EFFORTS = new Set<CanonicalReasoningEffort>([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 
 function asObject(value: unknown, label: string): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -35,6 +52,92 @@ function textContent(value: unknown): string {
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function imageUrl(part: JsonObject): string | undefined {
+  const value = part.image_url;
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const url = (value as JsonObject).url;
+    if (typeof url === "string") return url;
+  }
+  return undefined;
+}
+
+function parseImageContent(part: JsonObject): CanonicalImageContent {
+  const url = imageUrl(part);
+  if (!url) {
+    throw new RuntimeError("image_url is required", 400, "invalid_image");
+  }
+  const match = IMAGE_DATA_URL.exec(url);
+  if (!match) {
+    throw new RuntimeError(
+      "Lane currently accepts input images as base64 data URLs",
+      400,
+      "unsupported_image_url",
+    );
+  }
+  const data = match[2]!;
+  const bytes = Buffer.from(data, "base64");
+  if (bytes.length === 0 || bytes.length > MAX_INPUT_IMAGE_BYTES) {
+    throw new RuntimeError(
+      `Input images must be between 1 byte and ${MAX_INPUT_IMAGE_BYTES / 1024 / 1024} MiB`,
+      400,
+      "invalid_image",
+    );
+  }
+  return { type: "image", mimeType: match[1]!.toLowerCase(), data };
+}
+
+function parseUserContent(value: unknown): CanonicalUserContent {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) {
+    throw new RuntimeError("User content must be a string or array", 400, "invalid_request");
+  }
+  const content: Array<CanonicalTextContent | CanonicalImageContent> = [];
+  for (const raw of value) {
+    const part = asObject(raw, "content part");
+    if (
+      part.type === "text" ||
+      part.type === "input_text" ||
+      part.type === "output_text"
+    ) {
+      if (typeof part.text !== "string") {
+        throw new RuntimeError("Text content requires text", 400, "invalid_request");
+      }
+      content.push({ type: "text", text: part.text });
+      continue;
+    }
+    if (part.type === "image_url" || part.type === "input_image") {
+      content.push(parseImageContent(part));
+      continue;
+    }
+    throw new RuntimeError(
+      `Unsupported user content type: ${String(part.type)}`,
+      400,
+      "invalid_request",
+    );
+  }
+  return content;
+}
+
+function parseReasoningEffort(value: unknown): CanonicalReasoningEffort | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !REASONING_EFFORTS.has(value as CanonicalReasoningEffort)) {
+    throw new RuntimeError("Unsupported reasoning effort", 400, "invalid_request");
+  }
+  return value as CanonicalReasoningEffort;
+}
+
+function parseSpeedMode(value: unknown): CanonicalSpeedMode | undefined {
+  if (value === undefined) return undefined;
+  if (value === "auto" || value === "default") return "standard";
+  if (value === "fast" || value === "priority") return "fast";
+  throw new RuntimeError(
+    "service_tier must be auto, default, fast, or priority",
+    400,
+    "unsupported_service_tier",
+  );
 }
 
 function parseArguments(value: unknown): Record<string, unknown> {
@@ -99,7 +202,7 @@ function parseChatMessages(value: unknown): {
       continue;
     }
     if (role === "user") {
-      messages.push({ role: "user", content: textContent(item.content) });
+      messages.push({ role: "user", content: parseUserContent(item.content) });
       continue;
     }
     if (role === "assistant") {
@@ -151,11 +254,15 @@ export function parseChatRequest(value: unknown): CanonicalRequest {
   const body = asObject(value, "request");
   const parsed = parseChatMessages(body.messages);
   const tools = parseTools(body.tools);
+  const reasoningEffort = parseReasoningEffort(body.reasoning_effort);
+  const speedMode = parseSpeedMode(body.service_tier);
   return {
     ...parsed,
     ...(typeof body.model === "string" ? { model: body.model } : {}),
     ...(typeof body.temperature === "number" ? { temperature: body.temperature } : {}),
     ...(typeof body.max_tokens === "number" ? { maxTokens: body.max_tokens } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+    ...(speedMode ? { speedMode } : {}),
     ...(tools ? { tools } : {}),
   };
 }
@@ -199,12 +306,20 @@ export function parseResponsesRequest(value: unknown): CanonicalRequest {
   const instructions = typeof body.instructions === "string" ? body.instructions : undefined;
   const systemPrompt = [instructions, parsed.systemPrompt].filter(Boolean).join("\n\n");
   const tools = parseTools(body.tools);
+  const reasoning =
+    body.reasoning && typeof body.reasoning === "object" && !Array.isArray(body.reasoning)
+      ? (body.reasoning as JsonObject).effort
+      : undefined;
+  const reasoningEffort = parseReasoningEffort(reasoning);
+  const speedMode = parseSpeedMode(body.service_tier);
   return {
     ...parsed,
     ...(systemPrompt ? { systemPrompt } : {}),
     ...(typeof body.model === "string" ? { model: body.model } : {}),
     ...(typeof body.temperature === "number" ? { temperature: body.temperature } : {}),
     ...(typeof body.max_output_tokens === "number" ? { maxTokens: body.max_output_tokens } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+    ...(speedMode ? { speedMode } : {}),
     ...(tools ? { tools } : {}),
   };
 }

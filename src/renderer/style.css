@@ -234,7 +234,7 @@
 }
 
 .lane-page {
-  padding: 1rem 1.5rem;
+  padding: 0.75rem 1.25rem 1rem;
 }
 
 .lane-section-heading {
@@ -250,8 +250,8 @@
 
 .lane-provider-row {
   border-radius: 0.5rem;
-  min-height: 3.25rem;
-  padding: 0.625rem 0.75rem;
+  min-height: 3rem;
+  padding: 0.5rem 0.75rem;
   transition:
     background-color 140ms ease,
     color 140ms ease;

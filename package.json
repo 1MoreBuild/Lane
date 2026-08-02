@@ -1,6 +1,6 @@
 {
   "name": "lane-local-ai-gateway",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "A local, multi-provider AI gateway for desktop apps.",
   "author": "Haitian",
@@ -38,7 +38,9 @@
     "package:e2e:mac:arm64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --arm64 --publish never -c.mac.identity=-",
     "package:e2e:mac:x64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --x64 --publish never -c.mac.identity=-",
     "package:e2e:win:x64": "npm run build && electron-builder --win --x64 --dir --publish never",
-    "package:mac:release": "npm run build:icon && npm run build:release && electron-builder --mac dmg zip --arm64 --x64 --publish never -c.mac.forceCodeSigning=true",
+    "package:mac:release:prepare": "npm run build:icon && npm run build:release",
+    "package:mac:release:dist": "electron-builder --mac dmg zip --arm64 --x64 --publish never -c.mac.forceCodeSigning=true",
+    "package:mac:release": "npm run package:mac:release:prepare && npm run package:mac:release:dist",
     "package:mac:test": "npm run package:mac:arm64 && npm run package:mac:x64",
     "package:win": "npm run build && electron-builder --win nsis --x64",
     "check": "npm run lint && npm run typecheck && npm test && npm run validate:packaging"

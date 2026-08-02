@@ -12,8 +12,34 @@ export interface CanonicalToolCall {
   arguments: Record<string, unknown>;
 }
 
+export interface CanonicalTextContent {
+  type: "text";
+  text: string;
+}
+
+export interface CanonicalImageContent {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
+export type CanonicalUserContent =
+  | string
+  | Array<CanonicalTextContent | CanonicalImageContent>;
+
+export type CanonicalReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export type CanonicalSpeedMode = "standard" | "fast";
+
 export type CanonicalMessage =
-  | { role: "user"; content: string }
+  | { role: "user"; content: CanonicalUserContent }
   | { role: "assistant"; content: string; toolCalls?: CanonicalToolCall[] }
   | { role: "tool"; content: string; toolCallId: string; toolName: string };
 
@@ -24,6 +50,8 @@ export interface CanonicalRequest {
   tools?: CanonicalTool[];
   temperature?: number;
   maxTokens?: number;
+  reasoningEffort?: CanonicalReasoningEffort;
+  speedMode?: CanonicalSpeedMode;
 }
 
 export interface CanonicalImageRequest {

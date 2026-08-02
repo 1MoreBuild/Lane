@@ -32,6 +32,46 @@ interface LaneTestContext {
   upstream: MockOpenAI;
   session: LaneSession | undefined;
   rendererErrors: string[];
+  appExit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+}
+
+const INHERITED_ENVIRONMENT_KEYS =
+  process.platform === "win32"
+    ? [
+        "PATH",
+        "SystemRoot",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "LANG",
+        "LC_ALL",
+      ]
+    : [
+        "PATH",
+        "HOME",
+        "TMPDIR",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "LANG",
+        "LC_ALL",
+        "__CF_USER_TEXT_ENCODING",
+      ];
+
+function e2eEnvironment(extra: NodeJS.ProcessEnv = {}): Record<string, string> {
+  const inherited = Object.fromEntries(
+    INHERITED_ENVIRONMENT_KEYS.flatMap((key) => {
+      const value = process.env[key];
+      return value === undefined ? [] : [[key, value]];
+    }),
+  );
+  const definedExtra = Object.fromEntries(
+    Object.entries(extra).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
+  return { ...inherited, ...definedExtra };
 }
 
 function packagedExecutable(): string {
@@ -72,6 +112,8 @@ async function createContext(): Promise<LaneTestContext> {
           ],
         },
         providers: [],
+        reasoningEffort: "high",
+        speedMode: "standard",
         launchAtLogin: false,
         visibility: {
           showDockIcon: true,
@@ -92,6 +134,7 @@ async function createContext(): Promise<LaneTestContext> {
     secretKey: randomBytes(32).toString("base64url"),
     session: undefined,
     rendererErrors: [],
+    appExit: undefined,
   };
 }
 
@@ -101,16 +144,23 @@ async function launchLane(
 ): Promise<LaneSession> {
   const app = await electron.launch({
     executablePath: packagedExecutable(),
-    env: {
-      ...process.env,
+    env: e2eEnvironment({
       LANE_DISABLE_AUTO_UPDATE: "1",
       LANE_E2E_USER_DATA: context.userData,
       LANE_E2E_SECRET_KEY: context.secretKey,
       LANE_CONTROL_SOCKET: context.controlSocket,
-    },
+    }),
     artifactsDir: testInfo.outputPath("electron-artifacts"),
   });
+  context.appExit = undefined;
+  app.process().once("exit", (code, signal) => {
+    context.appExit = { code, signal };
+  });
   const page = await app.firstWindow();
+  const windowVisible = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows().some((window) => window.isVisible()),
+  );
+  expect(windowVisible).toBe(false);
   page.on("pageerror", (error) => {
     context.rendererErrors.push(error.message);
   });
@@ -144,14 +194,13 @@ async function runPackagedProcess(
 ): Promise<ChildResult> {
   return await new Promise<ChildResult>((resolveChild, rejectChild) => {
     const child = spawn(executable, args, {
-      env: {
-        ...process.env,
+      env: e2eEnvironment({
         LANE_DISABLE_AUTO_UPDATE: "1",
         LANE_E2E_USER_DATA: context.userData,
         LANE_E2E_SECRET_KEY: context.secretKey,
         LANE_CONTROL_SOCKET: context.controlSocket,
         ...extraEnv,
-      },
+      }),
       stdio: ["pipe", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];
@@ -219,21 +268,27 @@ async function closeLane(
   const failed =
     retainFailureDiagnostics && testInfo.status !== testInfo.expectedStatus;
   try {
-    if (failed) {
+    if (failed && !session.page.isClosed()) {
       await testInfo.attach("lane-window", {
         body: await session.page.screenshot(),
         contentType: "image/png",
       });
     }
     if (failed) {
+      await testInfo.attach("lane-process-exit", {
+        body: Buffer.from(JSON.stringify(context.appExit ?? { state: "running" })),
+        contentType: "application/json",
+      });
+    }
+    if (failed) {
       const tracePath = testInfo.outputPath("trace.zip");
-      await session.app.context().tracing.stop({ path: tracePath });
+      await session.app.context().tracing.stop({ path: tracePath }).catch(() => undefined);
       await testInfo.attach("trace", {
         path: tracePath,
         contentType: "application/zip",
-      });
+      }).catch(() => undefined);
     } else {
-      await session.app.context().tracing.stop();
+      await session.app.context().tracing.stop().catch(() => undefined);
     }
   } finally {
     await session.app.close().catch(() => undefined);
@@ -258,6 +313,43 @@ async function connectMockProvider(page: Page, upstream: MockOpenAI): Promise<vo
   await expect(page.getByRole("combobox", { name: "Default model" })).toContainText(
     "mock-model",
   );
+}
+
+async function restartWithCodexProvider(
+  context: LaneTestContext,
+  testInfo: TestInfo,
+): Promise<LaneSession> {
+  await closeLane(context, testInfo, false);
+  const settingsPath = join(context.userData, "settings.json");
+  const settings = JSON.parse(await readFile(settingsPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  await writeFile(
+    settingsPath,
+    `${JSON.stringify(
+      {
+        ...settings,
+        providers: [
+          {
+            id: "openai-codex",
+            kind: "openai-codex",
+            name: "ChatGPT / Codex",
+            models: [],
+            createdAt: Date.now(),
+          },
+        ],
+        defaultModel: "openai-codex/gpt-5.6-luna",
+        defaultImageModel: "openai-codex/gpt-image-2",
+        reasoningEffort: "high",
+        speedMode: "standard",
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o600 },
+  );
+  return await launchLane(context, testInfo);
 }
 
 async function startGateway(page: Page): Promise<{ apiBaseUrl: string; clientKey: string }> {
@@ -382,6 +474,50 @@ test.describe("Lane packaged product journeys", () => {
     ).toBe(true);
   });
 
+  test("fits the default window and changes model defaults in the UI", async (
+    { browserName: _browserName },
+    testInfo,
+  ) => {
+    let { page } = await restartWithCodexProvider(context, testInfo);
+    const effort = page.getByRole("combobox", { name: "Effort" });
+    const speed = page.getByRole("combobox", { name: "Speed" });
+    await expect(effort).toContainText("High");
+    await expect(speed).toContainText("Standard");
+
+    const mainOverflow = await page.locator("main").evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }));
+    expect(mainOverflow.scrollHeight).toBeLessThanOrEqual(mainOverflow.clientHeight);
+
+    await effort.click();
+    const ultraOption = page.getByRole("option", { name: "Ultra" });
+    await ultraOption.click();
+    await expect(effort).toContainText("Ultra");
+    await expect(ultraOption).not.toBeVisible();
+
+    await speed.click();
+    const fastOption = page.getByRole("option", { name: /Fast/ });
+    await fastOption.click();
+    await expect(speed).toContainText("Fast");
+    await expect(fastOption).not.toBeVisible();
+    const speedScreenshot = testInfo.outputPath("speed-fast.png");
+    await page.screenshot({ path: speedScreenshot });
+    await testInfo.attach("speed-fast", {
+      path: speedScreenshot,
+      contentType: "image/png",
+    });
+
+    await closeLane(context, testInfo, false);
+    ({ page } = await launchLane(context, testInfo));
+    await expect(page.getByRole("combobox", { name: "Effort" })).toContainText(
+      "Ultra",
+    );
+    await expect(page.getByRole("combobox", { name: "Speed" })).toContainText(
+      "Fast",
+    );
+  });
+
   test("enforces the client boundary and maps upstream failures", async () => {
     const page = context.session!.page;
     await connectMockProvider(page, context.upstream);
@@ -462,6 +598,30 @@ test.describe("Lane packaged product journeys", () => {
       },
     });
     expect(statusData.default_model).toMatch(/\/mock-model$/);
+
+    const setSpeed = await runPackagedProcess(
+      context,
+      cli.executable,
+      ["models", "set-speed", "--speed", "fast", "--json", "--no-input"],
+      undefined,
+      cli.env,
+    );
+    expect(setSpeed.code, setSpeed.stderr).toBe(0);
+    expect(JSON.parse(setSpeed.stdout.toString("utf8"))).toEqual({
+      speed_mode: "fast",
+    });
+
+    const updatedStatus = await runPackagedProcess(
+      context,
+      cli.executable,
+      ["status", "--json", "--no-input"],
+      undefined,
+      cli.env,
+    );
+    expect(updatedStatus.code, updatedStatus.stderr).toBe(0);
+    expect(JSON.parse(updatedStatus.stdout.toString("utf8"))).toMatchObject({
+      speed_mode: "fast",
+    });
 
     const models = await runPackagedProcess(
       context,

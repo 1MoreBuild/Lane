@@ -3,6 +3,7 @@ import type {
   CliControlResponse,
 } from "./cli-control.ts";
 import { requestCliControl } from "./cli-control.ts";
+import type { ReasoningEffort } from "../shared/contracts.ts";
 
 const TOP_LEVEL_COMMANDS = [
   "status",
@@ -29,6 +30,8 @@ type LaneCliCommand =
   | "models"
   | "models-set-default"
   | "models-set-default-image"
+  | "models-set-effort"
+  | "models-set-speed"
   | "schema";
 type OutputMode = "human" | "json" | "plain";
 
@@ -58,6 +61,8 @@ interface ParsedCli {
   name?: string;
   baseUrl?: string;
   id?: string;
+  effort?: string;
+  speed?: string;
 }
 
 interface CliErrorPayload {
@@ -90,6 +95,10 @@ Models and diagnostics:
   models set-default --id <id>   Set the fallback model
   models set-default-image --id <id>
                                  Set the image generation model
+  models set-effort --effort <low|medium|high|xhigh|max>
+                                 Set the default reasoning effort
+  models set-speed --speed <standard|fast>
+                                 Set the default response speed
   activity                       Print redacted recent activity
   schema                         Print the machine-readable command schema
 
@@ -133,6 +142,8 @@ export const LANE_CLI_SCHEMA = {
       idempotent: true,
       output: "object",
     },
+    "models set-effort": { mutation: true, idempotent: true, output: "object" },
+    "models set-speed": { mutation: true, idempotent: true, output: "object" },
     activity: { mutation: false, output: "array", redacted: true },
     schema: { mutation: false, output: "object", local: true },
   },
@@ -159,7 +170,9 @@ function parseArguments(args: string[]): ParsedCli {
   let version = false;
   let force = false;
   let apiKeyStdin = false;
-  const values: Partial<Record<"kind" | "name" | "baseUrl" | "id", string>> = {};
+  const values: Partial<
+    Record<"kind" | "name" | "baseUrl" | "id" | "effort" | "speed", string>
+  > = {};
   const positional: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -180,12 +193,16 @@ function parseArguments(args: string[]): ParsedCli {
       help = true;
     } else if (arg === "-V" || arg === "--version") {
       version = true;
-    } else if (["--kind", "--name", "--base-url", "--id"].includes(arg)) {
+    } else if (
+      ["--kind", "--name", "--base-url", "--id", "--effort", "--speed"].includes(arg)
+    ) {
       const value = args[index + 1];
       if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value`);
       index += 1;
       const key =
-        arg === "--base-url" ? "baseUrl" : (arg.slice(2) as "kind" | "name" | "id");
+        arg === "--base-url"
+          ? "baseUrl"
+          : (arg.slice(2) as "kind" | "name" | "id" | "effort" | "speed");
       values[key] = value;
     } else if (arg.startsWith("-")) {
       throw new Error(`Unknown flag: ${arg}`);
@@ -223,6 +240,8 @@ function parseArguments(args: string[]): ParsedCli {
     if (!action || action === "list") command = "models";
     else if (action === "set-default") command = "models-set-default";
     else if (action === "set-default-image") command = "models-set-default-image";
+    else if (action === "set-effort") command = "models-set-effort";
+    else if (action === "set-speed") command = "models-set-speed";
     else throw new Error(`Unknown models command: ${action}`);
   } else {
     throw new Error(`Unknown command: ${group}`);
@@ -261,6 +280,8 @@ function humanStatus(value: unknown): string {
     gateway?: { running?: boolean; api_base_url?: string };
     default_model?: string | null;
     default_image_model?: string | null;
+    reasoning_effort?: string;
+    speed_mode?: string;
     providers?: { connected?: number; total?: number };
   };
   return `${[
@@ -268,6 +289,8 @@ function humanStatus(value: unknown): string {
     ...(status.gateway?.api_base_url ? [`API: ${status.gateway.api_base_url}`] : []),
     `Default model: ${status.default_model ?? "not set"}`,
     `Image model: ${status.default_image_model ?? "not set"}`,
+    `Effort: ${status.reasoning_effort ?? "high"}`,
+    `Speed: ${status.speed_mode === "fast" ? "Fast" : "Standard"}`,
     `Providers: ${status.providers?.connected ?? 0}/${status.providers?.total ?? 0} connected`,
   ].join("\n")}\n`;
 }
@@ -307,6 +330,8 @@ function plainOutput(command: LaneCliCommand, value: unknown): string {
       gateway: { running: boolean; api_base_url: string };
       default_model: string | null;
       default_image_model: string | null;
+      reasoning_effort: string;
+      speed_mode: string;
       providers: { connected: number; total: number };
     };
     return [
@@ -314,6 +339,8 @@ function plainOutput(command: LaneCliCommand, value: unknown): string {
       `gateway.api_base_url\t${status.gateway.api_base_url}`,
       `default_model\t${status.default_model ?? ""}`,
       `default_image_model\t${status.default_image_model ?? ""}`,
+      `reasoning_effort\t${status.reasoning_effort}`,
+      `speed_mode\t${status.speed_mode}`,
       `providers.connected\t${String(status.providers.connected)}`,
       `providers.total\t${String(status.providers.total)}`,
       "",
@@ -352,6 +379,8 @@ function humanOutput(command: LaneCliCommand, value: unknown): string {
     "providers-oauth": "ChatGPT / Codex connected.",
     "models-set-default": "Default model updated.",
     "models-set-default-image": "Image model updated.",
+    "models-set-effort": "Reasoning effort updated.",
+    "models-set-speed": "Speed updated.",
   };
   return `${messages[command] ?? "Done."}\n`;
 }
@@ -402,6 +431,21 @@ async function controlRequest(
     case "models-set-default-image":
       if (!parsed.id) throw new Error("--id is required");
       return { command: "default-image-model-set", params: { modelId: parsed.id } };
+    case "models-set-effort":
+      if (!["low", "medium", "high", "xhigh", "max"].includes(parsed.effort ?? "")) {
+        throw new Error("--effort must be low, medium, high, xhigh, or max");
+      }
+      return {
+        command: "reasoning-effort-set",
+        params: {
+          reasoningEffort: parsed.effort as ReasoningEffort,
+        },
+      };
+    case "models-set-speed":
+      if (parsed.speed !== "standard" && parsed.speed !== "fast") {
+        throw new Error("--speed must be standard or fast");
+      }
+      return { command: "speed-mode-set", params: { speedMode: parsed.speed } };
     case "providers-list":
       return { command: "providers-list" };
     case "providers-oauth":

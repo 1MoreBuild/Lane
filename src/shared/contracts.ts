@@ -29,12 +29,17 @@ export interface CliConfig {
   enabled: boolean;
 }
 
+export type SpeedMode = "standard" | "fast";
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
 export interface LaneConfig {
   version: 1;
   gateway: GatewayConfig;
   providers: ProviderConfig[];
   defaultModel?: string;
   defaultImageModel?: string;
+  reasoningEffort: ReasoningEffort;
+  speedMode: SpeedMode;
   launchAtLogin: boolean;
   visibility: AppVisibilityConfig;
   cli: CliConfig;
@@ -54,6 +59,8 @@ export interface PublicModel {
   id: string;
   provider: string;
   name: string;
+  reasoning?: boolean;
+  reasoningEfforts?: ReasoningEffort[];
 }
 
 export interface LaneState {
@@ -68,6 +75,8 @@ export interface LaneState {
   imageModels: PublicModel[];
   defaultModel?: string;
   defaultImageModel?: string;
+  reasoningEffort: ReasoningEffort;
+  speedMode: SpeedMode;
   launchAtLogin: boolean;
   visibility: AppVisibilityConfig;
   cliEnabled: boolean;
@@ -113,6 +122,8 @@ export interface LaneRendererApi {
   cancelOAuth(): Promise<void>;
   setDefaultModel(modelId: string): Promise<LaneState>;
   setDefaultImageModel(modelId: string): Promise<LaneState>;
+  setReasoningEffort(effort: ReasoningEffort): Promise<LaneState>;
+  setSpeedMode(mode: SpeedMode): Promise<LaneState>;
   startGateway(): Promise<LaneState>;
   stopGateway(): Promise<LaneState>;
   setLaunchAtLogin(enabled: boolean): Promise<LaneState>;

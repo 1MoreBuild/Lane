@@ -22,6 +22,7 @@ import type {
   LaneState,
   LaneUpdateState,
   OAuthUiEvent,
+  ReasoningEffort,
 } from "../shared/contracts.ts";
 import {
   getLaneApiBaseUrl,
@@ -270,6 +271,16 @@ async function cliResult(request: CliControlRequest, appCore: AppCore): Promise<
     const state = await stateAfter(() => appCore.setDefaultImageModel(params!.modelId!));
     return { default_image_model: state.defaultImageModel ?? null };
   }
+  if (command === "speed-mode-set") {
+    const state = await stateAfter(() => appCore.setSpeedMode(params!.speedMode!));
+    return { speed_mode: state.speedMode };
+  }
+  if (command === "reasoning-effort-set") {
+    const state = await stateAfter(() =>
+      appCore.setReasoningEffort(params!.reasoningEffort!),
+    );
+    return { reasoning_effort: state.reasoningEffort };
+  }
   if (command === "browser-client-connect") {
     const state = await stateAfter(() => appCore.connectBrowserClient(params!.origin!));
     return {
@@ -331,6 +342,8 @@ async function cliResult(request: CliControlRequest, appCore: AppCore): Promise<
     },
     default_model: state.defaultModel ?? null,
     default_image_model: state.defaultImageModel ?? null,
+    reasoning_effort: state.reasoningEffort,
+    speed_mode: state.speedMode,
     providers: {
       connected: state.providers.filter((provider) => provider.connected).length,
       total: state.providers.length,
@@ -386,6 +399,18 @@ function registerIpc(appCore: AppCore, installer: CliInstaller): void {
   ipcMain.handle("lane:set-default-image-model", (_event, model: unknown) => {
     if (typeof model !== "string") throw new Error("Image model id is required");
     return stateAfter(() => appCore.setDefaultImageModel(model));
+  });
+  ipcMain.handle("lane:set-speed-mode", (_event, mode: unknown) => {
+    if (mode !== "standard" && mode !== "fast") throw new Error("Invalid speed mode");
+    return stateAfter(() => appCore.setSpeedMode(mode));
+  });
+  ipcMain.handle("lane:set-reasoning-effort", (_event, effort: unknown) => {
+    if (!["low", "medium", "high", "xhigh", "max"].includes(String(effort))) {
+      throw new Error("Invalid reasoning effort");
+    }
+    return stateAfter(() =>
+      appCore.setReasoningEffort(effort as ReasoningEffort),
+    );
   });
   ipcMain.handle("lane:start-gateway", (event) =>
     startGatewayFromUi(appCore, BrowserWindow.fromWebContents(event.sender)),
@@ -568,10 +593,12 @@ async function createMenubarWindow(): Promise<BrowserWindow> {
 async function createWindow(): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     width: 660,
-    height: 460,
+    height: 470,
     minWidth: 620,
-    minHeight: 440,
-    show: !cliWakeMode,
+    minHeight: 450,
+    // Packaged E2E exercises the real renderer and IPC boundary in a hidden
+    // native window so the suite does not steal focus from the desktop.
+    show: !cliWakeMode && !e2eMode,
     title: "Lane",
     backgroundColor:
       process.platform === "darwin"
@@ -637,6 +664,7 @@ function startAutomaticUpdates(logger: LaneLogger): void {
 async function boot(): Promise<void> {
   const userData = app.getPath("userData");
   if (e2eMode) {
+    app.dock?.hide();
     app.setAppLogsPath(join(userData, "logs"));
   } else {
     app.setAppLogsPath();

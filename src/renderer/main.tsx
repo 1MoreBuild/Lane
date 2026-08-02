@@ -76,6 +76,7 @@ import type {
   LaneUpdateState,
   ProviderKind,
   ProviderStatus,
+  ReasoningEffort,
 } from "../shared/contracts.ts";
 import "./style.css";
 
@@ -98,6 +99,79 @@ const PROVIDER_OPTIONS = [
   label: string;
   description: string;
 }>;
+
+const REASONING_EFFORT_OPTIONS = [
+  { value: "max", label: "Ultra" },
+  { value: "xhigh", label: "Extra High" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Light" },
+] as const satisfies ReadonlyArray<{
+  value: ReasoningEffort;
+  label: string;
+}>;
+
+function modelCapabilityScore(id: string): number | undefined {
+  const version = id.match(/gpt-(\d+)\.(\d+)/i);
+  if (!version) return undefined;
+
+  const major = Number(version[1]);
+  const minor = Number(version[2]);
+  const variant = id.toLowerCase();
+  const tier = variant.includes("pro")
+    ? 50
+    : variant.includes("sol")
+      ? 40
+      : variant.includes("terra")
+        ? 30
+        : variant.includes("luna")
+          ? 10
+          : variant.includes("mini")
+            ? -10
+            : variant.includes("nano")
+              ? -20
+              : variant.includes("spark")
+                ? -30
+                : 20;
+
+  return major * 10_000 + minor * 100 + tier;
+}
+
+function compareModelsByCapability(
+  left: LaneState["models"][number],
+  right: LaneState["models"][number],
+): number {
+  const leftScore = modelCapabilityScore(left.id);
+  const rightScore = modelCapabilityScore(right.id);
+  if (leftScore !== undefined && rightScore !== undefined && leftScore !== rightScore) {
+    return rightScore - leftScore;
+  }
+  if (leftScore !== undefined && rightScore === undefined) return -1;
+  if (leftScore === undefined && rightScore !== undefined) return 1;
+  return left.name.localeCompare(right.name);
+}
+
+function reasoningEffortLabel(value: ReasoningEffort): string {
+  return REASONING_EFFORT_OPTIONS.find((option) => option.value === value)?.label ?? "High";
+}
+
+function effectiveReasoningEffort(
+  requested: ReasoningEffort,
+  supported: readonly ReasoningEffort[],
+): ReasoningEffort {
+  if (supported.includes(requested)) return requested;
+  const order = REASONING_EFFORT_OPTIONS.map((option) => option.value).toReversed();
+  const requestedIndex = order.indexOf(requested);
+  for (let index = requestedIndex; index < order.length; index += 1) {
+    const candidate = order[index];
+    if (candidate && supported.includes(candidate)) return candidate;
+  }
+  for (let index = requestedIndex - 1; index >= 0; index -= 1) {
+    const candidate = order[index];
+    if (candidate && supported.includes(candidate)) return candidate;
+  }
+  return requested;
+}
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -387,6 +461,18 @@ function App(): ReactNode {
   const oauthConnected = state.providers.some((provider) => provider.kind === "openai-codex");
   const apiBaseUrl = getLaneApiBaseUrl(state.gateway.endpoint);
   const selectedModel = state.models.find((model) => model.id === state.defaultModel);
+  const selectedModelProvider = state.providers.find(
+    (provider) => provider.id === selectedModel?.provider,
+  );
+  const supportsSpeedMode =
+    selectedModelProvider?.kind === "openai" ||
+    selectedModelProvider?.kind === "openai-codex";
+  const supportedReasoningEfforts = selectedModel?.reasoningEfforts ?? [];
+  const supportsReasoningEffort = supportedReasoningEfforts.length > 0;
+  const displayedReasoningEffort = effectiveReasoningEffort(
+    state.reasoningEffort,
+    supportedReasoningEfforts,
+  );
   const selectedImageModel = state.imageModels.find(
     (model) => model.id === state.defaultImageModel,
   );
@@ -401,7 +487,9 @@ function App(): ReactNode {
       name: providerGroupLabel(
         state.providers.find((provider) => provider.id === providerId),
       ),
-      models: state.models.filter((model) => model.provider === providerId),
+      models: state.models
+        .filter((model) => model.provider === providerId)
+        .sort(compareModelsByCapability),
     }),
   );
   const imageModelGroups = [
@@ -657,7 +745,7 @@ function App(): ReactNode {
   );
 
   return (
-    <TooltipProvider delay={500}>
+    <TooltipProvider delay={200}>
       <div className={cn("app-frame", window.lane.platform === "darwin" && "is-macos")}>
         <header className="window-chrome">
           <div className="window-navigation window-navigation-utilities">
@@ -680,7 +768,7 @@ function App(): ReactNode {
                 </div>
               )}
 
-            <section className="scroll-mt-6 pb-3" id="gateway">
+            <section className="scroll-mt-6 pb-2" id="gateway">
               <div className="lane-section-heading">
                 <h1 className="lane-section-title">Gateway</h1>
                 <div className="flex items-center gap-2">
@@ -813,7 +901,7 @@ function App(): ReactNode {
               )}
             </section>
 
-            <section className="scroll-mt-6 py-3" id="providers">
+            <section className="scroll-mt-6 py-2" id="providers">
               <div className="lane-section-heading">
                 <h2 className="lane-section-title">Connections</h2>
                 <Dialog open={providerDialogOpen} onOpenChange={changeProviderDialog}>
@@ -1044,74 +1132,159 @@ function App(): ReactNode {
               </div>
             </section>
 
-            <section className="divide-y pb-2 pt-3">
-              <div className="lane-section-heading py-3">
-                <div className="flex items-center gap-1">
-                  <p className="lane-section-title">Default model</p>
-                  <Tooltip>
-                    <TooltipTrigger
-                      aria-label="About the default model"
-                      render={
-                        <button
-                          className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          type="button"
-                        />
+            <section className="pb-2 pt-2">
+              <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2">
+                <div className="grid min-w-0 gap-1.5">
+                  <div className="flex items-center gap-1">
+                    <p className="lane-label text-muted-foreground">Default model</p>
+                    <Tooltip>
+                      <TooltipTrigger
+                        aria-label="About the default model"
+                        render={
+                          <button
+                            className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            type="button"
+                          />
+                        }
+                      >
+                        <span className="inline-flex size-3 items-center justify-center rounded-full border border-current text-[8px] font-semibold leading-none">
+                          i
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Used when an app doesn&apos;t specify a model.
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <Select
+                    disabled={state.models.length === 0}
+                    value={state.defaultModel ?? null}
+                    onValueChange={(value) => {
+                      if (value) {
+                        void window.lane
+                          .setDefaultModel(value)
+                          .then(setState)
+                          .catch((error: unknown) =>
+                            setLoadError(getErrorMessage(error)),
+                          );
                       }
-                    >
-                      <span className="inline-flex size-3.5 items-center justify-center rounded-full border border-current text-[9px] font-semibold leading-none">
-                        i
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Used when an app doesn&apos;t specify a model.
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <Select
-                  disabled={state.models.length === 0}
-                  value={state.defaultModel ?? null}
-                  onValueChange={(value) => {
-                    if (value) {
-                      void window.lane
-                        .setDefaultModel(value)
-                        .then(setState)
-                        .catch((error: unknown) => setLoadError(getErrorMessage(error)));
-                    }
-                  }}
-                >
-                  <SelectTrigger aria-label="Default model" className="h-9 w-64">
-                    <span className="min-w-0 truncate">
-                      {selectedModel?.name ?? "Choose a model"}
-                    </span>
-                  </SelectTrigger>
-                  <SelectContent
-                    align="end"
-                    alignItemWithTrigger={false}
-                    className="min-w-72"
+                    }}
                   >
-                    {modelGroups.map((group) => (
-                      <SelectGroup className="p-1.5" key={group.id}>
-                        <SelectLabel className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-[0.12em]">
-                          {group.name}
-                        </SelectLabel>
-                        {group.models.map((model) => (
+                    <SelectTrigger aria-label="Default model" className="h-9 w-full">
+                      <span className="min-w-0 truncate">
+                        {selectedModel?.name ?? "Choose a model"}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent
+                      align="end"
+                      alignItemWithTrigger={false}
+                      className="min-w-72"
+                    >
+                      {modelGroups.map((group) => (
+                        <SelectGroup className="p-1.5" key={group.id}>
+                          <SelectLabel className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-[0.12em]">
+                            {group.name}
+                          </SelectLabel>
+                          {group.models.map((model) => (
+                            <SelectItem
+                              className="min-h-9 rounded-lg py-2 pl-2.5"
+                              key={model.id}
+                              value={model.id}
+                            >
+                              {model.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {supportsReasoningEffort && (
+                  <div className="grid min-w-0 gap-1.5">
+                    <p className="lane-label text-muted-foreground">Effort</p>
+                    <Select
+                      value={displayedReasoningEffort}
+                      onValueChange={(value) => {
+                        if (
+                          value === "low" ||
+                          value === "medium" ||
+                          value === "high" ||
+                          value === "xhigh" ||
+                          value === "max"
+                        ) {
+                          void window.lane
+                            .setReasoningEffort(value)
+                            .then(setState)
+                            .catch((error: unknown) =>
+                              setLoadError(getErrorMessage(error)),
+                            );
+                        }
+                      }}
+                    >
+                      <SelectTrigger aria-label="Effort" className="h-9 w-full">
+                        {reasoningEffortLabel(displayedReasoningEffort)}
+                      </SelectTrigger>
+                      <SelectContent align="end" alignItemWithTrigger={false}>
+                        {REASONING_EFFORT_OPTIONS.filter((option) =>
+                          supportedReasoningEfforts.includes(option.value),
+                        ).map((option) => (
                           <SelectItem
-                            className="min-h-9 rounded-lg py-2 pl-2.5"
-                            key={model.id}
-                            value={model.id}
+                            className="min-h-9 py-2"
+                            key={option.value}
+                            value={option.value}
                           >
-                            {model.name}
+                            {option.label}
                           </SelectItem>
                         ))}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {supportsSpeedMode && (
+                  <div className="grid min-w-0 gap-1.5">
+                    <p className="lane-label text-muted-foreground">Speed</p>
+                    <Select
+                      value={state.speedMode}
+                      onValueChange={(value) => {
+                        if (value === "standard" || value === "fast") {
+                          void window.lane
+                            .setSpeedMode(value)
+                            .then(setState)
+                            .catch((error: unknown) =>
+                              setLoadError(getErrorMessage(error)),
+                            );
+                        }
+                      }}
+                    >
+                      <SelectTrigger aria-label="Speed" className="h-9 w-full">
+                        {state.speedMode === "fast" ? "Fast" : "Standard"}
+                      </SelectTrigger>
+                      <SelectContent align="end" alignItemWithTrigger={false}>
+                        <SelectItem className="min-h-12 py-2" value="standard">
+                          <span className="flex flex-col">
+                            <span>Standard</span>
+                            <span className="text-xs text-muted-foreground">
+                              Default speed
+                            </span>
+                          </span>
+                        </SelectItem>
+                        <SelectItem className="min-h-12 py-2" value="fast">
+                          <span className="flex flex-col">
+                            <span>Fast</span>
+                            <span className="text-xs text-muted-foreground">
+                              Faster responses, more usage
+                            </span>
+                          </span>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
               {state.imageModels.length > 0 && (
-                <div className="lane-section-heading py-3">
+                <div className="mt-3 grid w-[42%] min-w-0 gap-1.5">
                   <div className="flex items-center gap-1">
-                    <p className="lane-section-title">Image model</p>
+                    <p className="lane-label text-muted-foreground">Image model</p>
                     <Tooltip>
                       <TooltipTrigger
                         aria-label="About the image model"
@@ -1122,7 +1295,7 @@ function App(): ReactNode {
                           />
                         }
                       >
-                        <span className="inline-flex size-3.5 items-center justify-center rounded-full border border-current text-[9px] font-semibold leading-none">
+                        <span className="inline-flex size-3 items-center justify-center rounded-full border border-current text-[8px] font-semibold leading-none">
                           i
                         </span>
                       </TooltipTrigger>
@@ -1148,7 +1321,7 @@ function App(): ReactNode {
                       }
                     }}
                   >
-                    <SelectTrigger aria-label="Image model" className="h-9 w-64">
+                    <SelectTrigger aria-label="Image model" className="h-9 w-full">
                       <span className="min-w-0 truncate">
                         {selectedImageModel?.name ?? "Choose a model"}
                       </span>
