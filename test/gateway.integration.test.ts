@@ -21,6 +21,7 @@ async function setup(options: {
   runtimeKind?: ProviderConfig["kind"];
   defaultReasoningEffort?: ReasoningEffort;
   defaultSpeedMode?: "standard" | "fast";
+  includeLimitedReasoningModel?: boolean;
 } = {}) {
   const upstream = await startMockOpenAI();
   const credentials = new InMemoryCredentialStore();
@@ -46,6 +47,19 @@ async function setup(options: {
     },
     compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
   };
+  const limitedModel: Model<"openai-completions"> = {
+    ...model,
+    id: "mock-limited",
+    name: "Mock Limited Model",
+    thinkingLevelMap: {
+      off: "none",
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: null,
+      max: null,
+    },
+  };
   const models = createModels({
     credentials,
     authContext: { env: async () => undefined, fileExists: async () => false },
@@ -56,7 +70,7 @@ async function setup(options: {
       name: "Mock",
       baseUrl: upstream.baseUrl,
       auth: { apiKey: envApiKeyAuth("Mock key", []) },
-      models: [model],
+      models: options.includeLimitedReasoningModel ? [model, limitedModel] : [model],
       api: openAICompletionsApi(),
     }),
   );
@@ -65,7 +79,11 @@ async function setup(options: {
     kind: "custom-openai",
     name: "Mock",
     baseUrl: upstream.baseUrl,
-    models: ["mock-model", "mock-image"],
+    models: [
+      "mock-model",
+      ...(options.includeLimitedReasoningModel ? ["mock-limited"] : []),
+      "mock-image",
+    ],
     createdAt: 1,
   };
   const imageRuntime = new PiAiImageRuntime(
@@ -245,6 +263,40 @@ describe("gateway with a local pi-ai mock provider", () => {
         ],
       });
     }
+  });
+
+  it("clamps saved and request reasoning effort to the resolved model", async () => {
+    const { url, upstream } = await setup({
+      defaultReasoningEffort: "max",
+      includeLimitedReasoningModel: true,
+    });
+
+    for (const body of [
+      { input: "Use the full model" },
+      { model: "mock/mock-limited", input: "Clamp the saved default" },
+      {
+        model: "mock/mock-limited",
+        input: "Clamp the requested effort",
+        reasoning: { effort: "xhigh" },
+      },
+    ]) {
+      const response = await fetch(`${url}/v1/responses`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(200);
+    }
+
+    const requests = upstream.requests.filter(
+      (request) => request.path === "/v1/chat/completions",
+    );
+    expect(requests).toHaveLength(3);
+    expect(
+      requests.map(
+        (request) => (request.body as { reasoning_effort?: unknown }).reasoning_effort,
+      ),
+    ).toEqual(["max", "high", "high"]);
   });
 
   it("supports only Standard and Fast speed modes", async () => {
