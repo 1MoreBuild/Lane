@@ -29,6 +29,7 @@ import type {
   CanonicalEvent,
   CanonicalMessage,
   CanonicalRequest,
+  CanonicalReasoningEffort,
   ModelRuntime,
 } from "./runtime.ts";
 import { RuntimeError } from "./runtime.ts";
@@ -43,6 +44,15 @@ const EMPTY_USAGE: Usage = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
+const REASONING_EFFORT_ORDER = [
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const satisfies ReadonlyArray<Exclude<CanonicalReasoningEffort, "none">>;
+
 function defaultCustomModel(config: ProviderConfig, id: string): Model<"openai-completions"> {
   return {
     id,
@@ -51,7 +61,7 @@ function defaultCustomModel(config: ProviderConfig, id: string): Model<"openai-c
     provider: config.id,
     baseUrl: config.baseUrl ?? "",
     reasoning: false,
-    input: ["text"],
+    input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128_000,
     maxTokens: 16_384,
@@ -60,6 +70,25 @@ function defaultCustomModel(config: ProviderConfig, id: string): Model<"openai-c
       supportsReasoningEffort: false,
     },
   };
+}
+
+function effectiveReasoningEffort(
+  model: Model<Api>,
+  requested: Exclude<CanonicalReasoningEffort, "none">,
+): Exclude<CanonicalReasoningEffort, "none"> | undefined {
+  const supported = new Set(getSupportedThinkingLevels(model));
+  if (supported.has(requested)) return requested;
+
+  const requestedIndex = REASONING_EFFORT_ORDER.indexOf(requested);
+  for (let index = requestedIndex - 1; index >= 0; index -= 1) {
+    const candidate = REASONING_EFFORT_ORDER[index];
+    if (candidate && supported.has(candidate)) return candidate;
+  }
+  for (let index = requestedIndex + 1; index < REASONING_EFFORT_ORDER.length; index += 1) {
+    const candidate = REASONING_EFFORT_ORDER[index];
+    if (candidate && supported.has(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 export function buildModels(
@@ -247,10 +276,11 @@ export class PiAiRuntime implements ModelRuntime {
     signal: AbortSignal,
   ): AsyncIterable<CanonicalEvent> {
     const model = this.resolveModel(request.model);
+    const requestedReasoning = request.reasoningEffort ?? this.defaultReasoningEffort;
     const reasoning =
-      request.reasoningEffort === "none"
-        ? undefined
-        : request.reasoningEffort ?? this.defaultReasoningEffort;
+      model.reasoning && requestedReasoning !== "none"
+        ? effectiveReasoningEffort(model, requestedReasoning)
+        : undefined;
     const supportsSpeedMode = this.supportsSpeedMode(model.provider);
     if (request.speedMode === "fast" && !supportsSpeedMode) {
       throw new RuntimeError(

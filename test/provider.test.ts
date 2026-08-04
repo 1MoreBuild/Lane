@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 import { discoverModels, normalizeModels } from "../src/main/model-discovery.ts";
-import { mapProviderError } from "../src/main/pi-runtime.ts";
+import { buildModels, mapProviderError } from "../src/main/pi-runtime.ts";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import {
@@ -67,6 +67,27 @@ describe("provider connections", () => {
     );
     expect(models).toEqual([{ id: "model-1", name: "model-1" }]);
     expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("marks configured custom OpenAI-compatible models as image-capable", () => {
+    const models = buildModels(
+      [
+        {
+          id: "custom",
+          kind: "custom-openai",
+          name: "Custom",
+          baseUrl: "http://127.0.0.1:9999/v1",
+          models: ["vision-model"],
+          createdAt: 1,
+        },
+      ],
+      new InMemoryCredentialStore(),
+    );
+
+    expect(models.getModel("custom", "vision-model")?.input).toEqual([
+      "text",
+      "image",
+    ]);
   });
 
   it("refreshes an expired OAuth token under the credential store", async () => {
