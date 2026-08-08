@@ -182,6 +182,10 @@ holder, so clients do not need a new endpoint.
 Activity is loaded before configuration restoration so startup events append to
 the previous history. Clean shutdown waits for queued activity writes. Cleanup
 runs at startup, after rotation, and at least daily while Lane remains open.
+Each gateway request emits correlated start and completion metadata so the UI
+can show one compact trace with route, resolved model, status, latency, usage,
+and cancellation or error state. Request and response content is never part of
+that trace.
 An accepted update first stops the gateway and private control socket, then
 hands the signed package to the platform updater.
 

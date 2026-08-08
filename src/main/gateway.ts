@@ -261,17 +261,30 @@ function streamHeaders(response: ServerResponse): void {
   response.flushHeaders();
 }
 
+interface GatewayExecutionSummary {
+  model?: string;
+  usage?: { input: number; output: number; total: number };
+  imageCount?: number;
+}
+
+function providerFromModel(model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  const separator = model.indexOf("/");
+  return separator > 0 ? model.slice(0, separator) : undefined;
+}
+
 async function streamChat(
   runtime: ModelRuntime,
   request: CanonicalRequest,
   signal: AbortSignal,
   response: ServerResponse,
-): Promise<void> {
+): Promise<GatewayExecutionSummary> {
   const id = `chatcmpl_${randomUUID()}`;
   const created = Math.floor(Date.now() / 1000);
   streamHeaders(response);
   let model = request.model ?? "";
   let sentRole = false;
+  let usage: GatewayExecutionSummary["usage"];
   for await (const event of runtime.stream(request, signal)) {
     if (event.type === "start") {
       model = event.model;
@@ -318,6 +331,7 @@ async function streamChat(
         ],
       });
     } else if (event.type === "done") {
+      usage = event.usage;
       if (!sentRole) model = request.model ?? "";
       sse(response, undefined, {
         id,
@@ -345,6 +359,7 @@ async function streamChat(
     }
   }
   sse(response, undefined, "[DONE]");
+  return { ...(model ? { model } : {}), ...(usage ? { usage } : {}) };
 }
 
 async function streamResponses(
@@ -352,7 +367,7 @@ async function streamResponses(
   request: CanonicalRequest,
   signal: AbortSignal,
   response: ServerResponse,
-): Promise<void> {
+): Promise<GatewayExecutionSummary> {
   const id = `resp_${randomUUID()}`;
   const itemId = `msg_${randomUUID()}`;
   let sequence = 0;
@@ -363,6 +378,7 @@ async function streamResponses(
     name: string;
     arguments: Record<string, unknown>;
   }> = [];
+  let usage: GatewayExecutionSummary["usage"];
   streamHeaders(response);
   for await (const event of runtime.stream(request, signal)) {
     if (event.type === "start") {
@@ -411,6 +427,7 @@ async function streamResponses(
         },
       });
     } else if (event.type === "done") {
+      usage = event.usage;
       sse(response, "response.output_text.done", {
         type: "response.output_text.done",
         sequence_number: sequence++,
@@ -434,6 +451,7 @@ async function streamResponses(
       });
     }
   }
+  return { ...(model ? { model } : {}), ...(usage ? { usage } : {}) };
 }
 
 export class GatewayServer {
@@ -461,13 +479,40 @@ export class GatewayServer {
     this.allowedOrigins = [...config.allowedOrigins];
     const server = createServer(async (request, response) => {
       let finished = false;
+      const startedAt = Date.now();
+      const requestId = randomUUID();
+      const method = (request.method ?? "UNKNOWN").toUpperCase().slice(0, 12);
+      const path = (() => {
+        try {
+          return new URL(request.url ?? "/", this.getEndpoint(config.port)).pathname.slice(0, 160);
+        } catch {
+          return "/";
+        }
+      })();
+      const shouldTrace = method !== "OPTIONS";
+      let execution: GatewayExecutionSummary = {};
+      let stream: boolean | undefined;
+      let errorCode: string | undefined;
+      let traceStatus: number | undefined;
       const controller = new AbortController();
       response.once("close", () => {
         if (!finished) controller.abort();
       });
       request.once("aborted", () => controller.abort());
+      if (shouldTrace) {
+        this.logger.trace("info", `${method} ${path}`, {
+          kind: "gateway",
+          requestId,
+          phase: "started",
+          method,
+          path,
+        });
+      }
       try {
-        if (!allowOrigin(request, response, this.allowedOrigins)) return;
+        if (!allowOrigin(request, response, this.allowedOrigins)) {
+          errorCode = "cors_origin_denied";
+          return;
+        }
         if (request.method === "OPTIONS") {
           response.statusCode = 204;
           response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -477,6 +522,7 @@ export class GatewayServer {
           return;
         }
         if (!authorize(request, clientKey)) {
+          errorCode = "invalid_lane_key";
           json(response, 401, {
             error: {
               message: "Missing or invalid Lane client key",
@@ -545,6 +591,7 @@ export class GatewayServer {
             parseImageRequest(await readJson(request)),
             controller.signal,
           );
+          execution = { model: result.model, imageCount: result.images.length };
           json(response, 200, {
             created: result.created,
             data: result.images.map((image) => ({
@@ -565,21 +612,33 @@ export class GatewayServer {
             Boolean(body) &&
             typeof body === "object" &&
             (body as { stream?: unknown }).stream === true;
+          stream = wantsStream;
           const canonical =
             url.pathname === "/v1/chat/completions"
               ? parseChatRequest(body)
               : parseResponsesRequest(body);
           if (wantsStream) {
             if (url.pathname === "/v1/chat/completions") {
-              await streamChat(this.runtime, canonical, controller.signal, response);
+              execution = await streamChat(
+                this.runtime,
+                canonical,
+                controller.signal,
+                response,
+              );
             } else {
-              await streamResponses(this.runtime, canonical, controller.signal, response);
+              execution = await streamResponses(
+                this.runtime,
+                canonical,
+                controller.signal,
+                response,
+              );
             }
             finished = true;
             response.end();
             return;
           }
           const result = await collectEvents(this.runtime.stream(canonical, controller.signal));
+          execution = { model: result.model, usage: result.usage };
           json(
             response,
             200,
@@ -589,24 +648,61 @@ export class GatewayServer {
           );
           return;
         }
+        errorCode = "not_found";
         json(response, 404, {
           error: { message: "Route not found", type: "not_found", code: "not_found" },
         });
       } catch (error) {
-        this.logger.error(
-          error instanceof RuntimeError
-            ? `${error.code}: ${error.message}`
-            : "Unhandled gateway request failure",
-        );
+        const mapped = openAiError(error);
+        errorCode = controller.signal.aborted
+          ? "request_cancelled"
+          : error instanceof RuntimeError
+            ? error.code
+            : "internal_error";
+        traceStatus = mapped.status;
         if (response.headersSent) {
-          sse(response, "error", openAiError(error).body);
+          sse(response, "error", mapped.body);
           response.end();
         } else if (!response.destroyed) {
-          const mapped = openAiError(error);
           json(response, mapped.status, mapped.body);
         }
       } finally {
         finished = true;
+        if (shouldTrace) {
+          const durationMs = Math.max(0, Date.now() - startedAt);
+          const cancelled = controller.signal.aborted;
+          const status = traceStatus ?? response.statusCode;
+          const level = cancelled || status >= 400 ? (status >= 500 ? "error" : "warn") : "info";
+          const provider = providerFromModel(execution.model);
+          this.logger.trace(
+            level,
+            `${method} ${path} · ${cancelled ? "cancelled" : status} · ${durationMs} ms`,
+            {
+              kind: "gateway",
+              requestId,
+              phase: "completed",
+              method,
+              path,
+              ...(stream !== undefined ? { stream } : {}),
+              ...(execution.model ? { model: execution.model } : {}),
+              ...(provider ? { provider } : {}),
+              status,
+              durationMs,
+              ...(execution.usage
+                ? {
+                    inputTokens: execution.usage.input,
+                    outputTokens: execution.usage.output,
+                    totalTokens: execution.usage.total,
+                  }
+                : {}),
+              ...(execution.imageCount !== undefined
+                ? { imageCount: execution.imageCount }
+                : {}),
+              ...(errorCode ? { errorCode } : {}),
+              ...(cancelled ? { cancelled: true } : {}),
+            },
+          );
+        }
       }
     });
     await new Promise<void>((resolve, reject) => {

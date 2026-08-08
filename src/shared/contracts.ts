@@ -92,10 +92,30 @@ export interface CliIntegrationState {
   error?: string;
 }
 
+export interface GatewayTrace {
+  kind: "gateway";
+  requestId: string;
+  phase: "started" | "completed";
+  method: string;
+  path: string;
+  stream?: boolean;
+  model?: string;
+  provider?: string;
+  status?: number;
+  durationMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  imageCount?: number;
+  errorCode?: string;
+  cancelled?: boolean;
+}
+
 export interface LogEntry {
   timestamp: number;
   level: "info" | "warn" | "error";
   message: string;
+  trace?: GatewayTrace;
 }
 
 export interface AddProviderInput {
@@ -113,6 +133,7 @@ export type LaneUpdateState =
 export interface LaneRendererApi {
   readonly platform: string;
   getState(): Promise<LaneState>;
+  clearActivity(): Promise<LaneState>;
   getUpdateState(): Promise<LaneUpdateState>;
   downloadUpdate(): Promise<void>;
   addProvider(input: AddProviderInput): Promise<LaneState>;

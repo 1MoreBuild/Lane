@@ -13,6 +13,8 @@ import type {
 const api: LaneRendererApi = {
   platform: process.platform,
   getState: () => ipcRenderer.invoke("lane:get-state") as Promise<LaneState>,
+  clearActivity: () =>
+    ipcRenderer.invoke("lane:clear-activity") as Promise<LaneState>,
   getUpdateState: () =>
     ipcRenderer.invoke("lane:get-update-state") as Promise<LaneUpdateState>,
   downloadUpdate: () => ipcRenderer.invoke("lane:download-update") as Promise<void>,

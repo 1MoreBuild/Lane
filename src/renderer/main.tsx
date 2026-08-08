@@ -10,6 +10,7 @@ import {
   Braces,
   Check,
   Clipboard,
+  Code2,
   Download,
   Eye,
   EyeOff,
@@ -65,6 +66,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
+  buildLaneEndpointCurl,
   getLaneApiBaseUrl,
   getLaneApiUrl,
   LANE_API_ROUTES,
@@ -72,8 +74,10 @@ import {
 import type {
   AddProviderInput,
   CliIntegrationState,
+  GatewayTrace,
   LaneState,
   LaneUpdateState,
+  LogEntry,
   ProviderKind,
   ProviderStatus,
   ReasoningEffort,
@@ -175,6 +179,81 @@ function effectiveReasoningEffort(
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+interface ActivityItem {
+  key: string;
+  timestamp: number;
+  level: LogEntry["level"];
+  message: string;
+  trace?: GatewayTrace;
+}
+
+function activityItems(logs: readonly LogEntry[]): ActivityItem[] {
+  const items: ActivityItem[] = [];
+  const requestIndexes = new Map<string, number>();
+  for (const entry of logs) {
+    if (!entry.trace) {
+      items.push({
+        key: `${entry.timestamp}-${items.length}`,
+        timestamp: entry.timestamp,
+        level: entry.level,
+        message: entry.message,
+      });
+      continue;
+    }
+    const existingIndex = requestIndexes.get(entry.trace.requestId);
+    if (existingIndex === undefined) {
+      requestIndexes.set(entry.trace.requestId, items.length);
+      items.push({
+        key: entry.trace.requestId,
+        timestamp: entry.timestamp,
+        level: entry.level,
+        message: entry.message,
+        trace: { ...entry.trace },
+      });
+      continue;
+    }
+    const existing = items[existingIndex];
+    if (!existing?.trace) continue;
+    items[existingIndex] = {
+      ...existing,
+      level: entry.level,
+      message: entry.message,
+      trace: { ...existing.trace, ...entry.trace },
+    };
+  }
+  return items.toReversed();
+}
+
+function shortModelName(model: string): string {
+  const separator = model.indexOf("/");
+  return separator > 0 ? model.slice(separator + 1) : model;
+}
+
+function formatCount(value: number): string {
+  if (value < 1_000) return String(value);
+  if (value < 10_000) return `${(value / 1_000).toFixed(1)}k`;
+  return `${Math.round(value / 1_000)}k`;
+}
+
+function traceDetails(trace: GatewayTrace): string[] {
+  const details: string[] = [];
+  if (trace.provider) details.push(trace.provider);
+  if (trace.model) details.push(shortModelName(trace.model));
+  if (trace.stream) details.push("stream");
+  if (trace.errorCode) details.push(trace.errorCode.replaceAll("_", " "));
+  if (trace.durationMs !== undefined) {
+    details.push(trace.durationMs < 1_000 ? `${trace.durationMs} ms` : `${(trace.durationMs / 1_000).toFixed(1)} s`);
+  }
+  if (trace.inputTokens !== undefined || trace.outputTokens !== undefined) {
+    const input = formatCount(trace.inputTokens ?? 0);
+    const output = formatCount(trace.outputTokens ?? 0);
+    details.push(`${input} in · ${output} out`);
+  } else if (trace.imageCount !== undefined) {
+    details.push(`${trace.imageCount} ${trace.imageCount === 1 ? "image" : "images"}`);
+  }
+  return details;
 }
 
 function FieldLabel({ children }: { children: ReactNode }): ReactNode {
@@ -395,6 +474,7 @@ function App(): ReactNode {
   const [gatewayBusy, setGatewayBusy] = useState(false);
   const [keyVisible, setKeyVisible] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [activityClearing, setActivityClearing] = useState(false);
   const [providerDialogOpen, setProviderDialogOpen] = useState(false);
   const [providerKind, setProviderKind] = useState<ProviderKind>("openai-codex");
   const [providerName, setProviderName] = useState("");
@@ -628,31 +708,112 @@ function App(): ReactNode {
     }
   }
 
+  async function clearActivity(): Promise<void> {
+    setActivityClearing(true);
+    try {
+      setState(await window.lane.clearActivity());
+    } catch (error) {
+      setLoadError(getErrorMessage(error));
+    } finally {
+      setActivityClearing(false);
+    }
+  }
+
+  const recentActivity = activityItems(state.logs);
   const activityPanel = (
     <section aria-label="Activity">
-      {state.logs.length === 0 ? (
+      {recentActivity.length === 0 ? (
         <p className="lane-meta px-4 py-5 text-center text-muted-foreground">
           No recent activity
         </p>
       ) : (
-        <ol className="max-h-72 divide-y overflow-y-auto px-4">
-          {[...state.logs].reverse().map((entry) => (
-            <li
-              className="lane-meta grid grid-cols-[3.5rem_1fr] gap-3 py-2.5"
-              key={`${entry.timestamp}-${entry.message}`}
+        <>
+          <div className="flex justify-end px-2 pt-1.5">
+            <Button
+              aria-label="Clear activity"
+              disabled={activityClearing}
+              onClick={() => void clearActivity()}
+              size="xs"
+              variant="ghost"
             >
-              <time className="text-muted-foreground">
-                {new Date(entry.timestamp).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </time>
-              <span className={entry.level === "error" ? "text-destructive" : ""}>
-                {entry.message}
-              </span>
-            </li>
-          ))}
-        </ol>
+              {activityClearing ? "Clearing…" : "Clear"}
+            </Button>
+          </div>
+          <ol className="max-h-80 divide-y overflow-y-auto px-3">
+            {recentActivity.map((entry) => {
+              const trace = entry.trace;
+              if (!trace) {
+                return (
+                  <li className="flex gap-3 py-2.5" key={entry.key}>
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/50",
+                        entry.level === "error" && "bg-destructive",
+                      )}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={cn(
+                          "lane-meta truncate",
+                          entry.level === "error" && "text-destructive",
+                        )}
+                      >
+                        {entry.message}
+                      </p>
+                      <time className="lane-label text-muted-foreground">
+                        {new Date(entry.timestamp).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </time>
+                    </div>
+                  </li>
+                );
+              }
+              const running = trace.phase === "started";
+              const failed = trace.cancelled || (trace.status ?? 0) >= 400;
+              const statusLabel = trace.cancelled
+                ? "Cancelled"
+                : running
+                  ? "Running"
+                  : String(trace.status ?? "Done");
+              return (
+                <li className="py-2.5" key={entry.key}>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="lane-label w-8 shrink-0 font-semibold text-muted-foreground">
+                      {trace.method}
+                    </span>
+                    <code className="min-w-0 flex-1 truncate text-[0.75rem] font-medium text-foreground">
+                      {trace.path}
+                    </code>
+                    <span
+                      className={cn(
+                        "lane-label shrink-0 tabular-nums text-muted-foreground",
+                        failed && "text-destructive",
+                      )}
+                    >
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 pl-10 text-[0.6875rem] text-muted-foreground">
+                    {traceDetails(trace).length > 0 && (
+                      <span className="min-w-0 flex-1 truncate">
+                        {traceDetails(trace).join(" · ")}
+                      </span>
+                    )}
+                    <time className="ml-auto shrink-0 tabular-nums">
+                      {new Date(entry.timestamp).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </time>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </>
       )}
     </section>
   );
@@ -821,7 +982,7 @@ function App(): ReactNode {
                             requires the Lane client key as a Bearer token.
                           </DialogDescription>
                         </DialogHeader>
-                        <div className="divide-y">
+                        <div className="min-w-0 divide-y overflow-hidden">
                           {LANE_API_ROUTES.map((route) => {
                             const routeUrl = getLaneApiUrl(
                               state.gateway.endpoint,
@@ -829,7 +990,7 @@ function App(): ReactNode {
                             );
                             return (
                               <div
-                                className="flex items-center gap-3 py-2.5"
+                                className="flex min-w-0 items-center gap-3 py-2.5"
                                 key={route.path}
                               >
                                 <span className="lane-label w-9 shrink-0 text-muted-foreground">
@@ -843,15 +1004,35 @@ function App(): ReactNode {
                                 </div>
                                 <IconAction
                                   label={
-                                    copied === route.path
+                                    copied === `curl:${route.path}`
                                       ? "Copied"
-                                      : `Copy ${route.label} endpoint`
+                                      : `Copy ${route.label} cURL`
                                   }
                                   onClick={() =>
-                                    void copyValue(routeUrl, route.path)
+                                    void copyValue(
+                                      buildLaneEndpointCurl(
+                                        state.gateway.endpoint,
+                                        route.path,
+                                        state.clientKey,
+                                        {
+                                          ...(state.defaultModel
+                                            ? { defaultModel: state.defaultModel }
+                                            : {}),
+                                          ...(state.defaultImageModel
+                                            ? {
+                                                defaultImageModel:
+                                                  state.defaultImageModel,
+                                              }
+                                            : {}),
+                                        },
+                                      ),
+                                      `curl:${route.path}`,
+                                    )
                                   }
                                 >
-                                  {copied === route.path ? <Check /> : <Clipboard />}
+                                  {copied === `curl:${route.path}`
+                                    ? <Check />
+                                    : <Code2 />}
                                 </IconAction>
                               </div>
                             );
@@ -937,10 +1118,7 @@ function App(): ReactNode {
                               <span className="truncate">{selectedProvider.label}</span>
                             </span>
                           </SelectTrigger>
-                          <SelectContent
-                            alignItemWithTrigger={false}
-                            className="p-1.5"
-                          >
+                          <SelectContent alignItemWithTrigger={false}>
                             {PROVIDER_OPTIONS.map((option) => (
                               <SelectItem
                                 className="min-h-14 rounded-lg px-2.5 py-2.5"
@@ -1181,7 +1359,7 @@ function App(): ReactNode {
                       className="min-w-72"
                     >
                       {modelGroups.map((group) => (
-                        <SelectGroup className="p-1.5" key={group.id}>
+                        <SelectGroup key={group.id}>
                           <SelectLabel className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-[0.12em]">
                             {group.name}
                           </SelectLabel>
@@ -1259,7 +1437,11 @@ function App(): ReactNode {
                       <SelectTrigger aria-label="Speed" className="h-9 w-full">
                         {state.speedMode === "fast" ? "Fast" : "Standard"}
                       </SelectTrigger>
-                      <SelectContent align="end" alignItemWithTrigger={false}>
+                      <SelectContent
+                        align="end"
+                        alignItemWithTrigger={false}
+                        width="content"
+                      >
                         <SelectItem className="min-h-12 py-2" value="standard">
                           <span className="flex flex-col">
                             <span>Standard</span>
@@ -1332,7 +1514,7 @@ function App(): ReactNode {
                       className="min-w-72"
                     >
                       {imageModelGroups.map((group) => (
-                        <SelectGroup className="p-1.5" key={group.id}>
+                        <SelectGroup key={group.id}>
                           <SelectLabel className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-[0.12em]">
                             {group.name}
                           </SelectLabel>

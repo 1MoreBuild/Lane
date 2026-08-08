@@ -79,11 +79,31 @@ let shutdownComplete = false;
 let shutdownInProgress = false;
 let shutdownPromise: Promise<void> | undefined;
 let menuBarIconVisible = true;
+let activityRefreshScheduled = false;
 
 function sendState(state: LaneState): void {
   mainWindow?.webContents.send("lane:state-changed", state);
   menubarWindow?.webContents.send("lane:state-changed", state);
   refreshTray(state);
+}
+
+function scheduleActivityRefresh(): void {
+  if (activityRefreshScheduled) return;
+  activityRefreshScheduled = true;
+  queueMicrotask(() => {
+    activityRefreshScheduled = false;
+    const appCore = core;
+    if (!appCore || (!mainWindow && !menubarWindow)) return;
+    void appCore
+      .getState()
+      .then((state) => {
+        mainWindow?.webContents.send("lane:state-changed", state);
+        menubarWindow?.webContents.send("lane:state-changed", state);
+      })
+      .catch((error: unknown) => {
+        console.error(`Lane activity refresh warning: ${redact(error)}`);
+      });
+  });
 }
 
 function sendOAuth(event: OAuthUiEvent): void {
@@ -327,11 +347,46 @@ async function cliResult(request: CliControlRequest, appCore: AppCore): Promise<
   }
   if (command === "providers-list") return publicProviders(state);
   if (command === "activity") {
-    return state.logs.map((entry) => ({
-      timestamp: new Date(entry.timestamp).toISOString(),
-      level: entry.level,
-      message: entry.message,
-    }));
+    return state.logs.map((entry) => {
+      const trace = entry.trace;
+      return {
+        timestamp: new Date(entry.timestamp).toISOString(),
+        level: entry.level,
+        type: trace ? "gateway" : "system",
+        message: entry.message,
+        ...(trace
+          ? {
+              request_id: trace.requestId,
+              phase: trace.phase,
+              method: trace.method,
+              path: trace.path,
+              ...(trace.stream !== undefined ? { stream: trace.stream } : {}),
+              ...(trace.provider ? { provider: trace.provider } : {}),
+              ...(trace.model ? { model: trace.model } : {}),
+              ...(trace.status !== undefined ? { status: trace.status } : {}),
+              ...(trace.durationMs !== undefined
+                ? { duration_ms: trace.durationMs }
+                : {}),
+              ...(trace.inputTokens !== undefined
+                ? { input_tokens: trace.inputTokens }
+                : {}),
+              ...(trace.outputTokens !== undefined
+                ? { output_tokens: trace.outputTokens }
+                : {}),
+              ...(trace.totalTokens !== undefined
+                ? { total_tokens: trace.totalTokens }
+                : {}),
+              ...(trace.imageCount !== undefined
+                ? { image_count: trace.imageCount }
+                : {}),
+              ...(trace.errorCode ? { error_code: trace.errorCode } : {}),
+              ...(trace.cancelled !== undefined
+                ? { cancelled: trace.cancelled }
+                : {}),
+            }
+          : {}),
+      };
+    });
   }
   return {
     version: app.getVersion(),
@@ -363,6 +418,7 @@ async function startCliControl(appCore: AppCore): Promise<void> {
 
 function registerIpc(appCore: AppCore, installer: CliInstaller): void {
   ipcMain.handle("lane:get-state", () => appCore.getState());
+  ipcMain.handle("lane:clear-activity", () => stateAfter(() => appCore.clearActivity()));
   ipcMain.handle("lane:get-update-state", () => updateState);
   ipcMain.handle("lane:download-update", async () => {
     await autoUpdate?.downloadAvailable();
@@ -541,7 +597,7 @@ function toggleMenubarWindow(): void {
 async function createMenubarWindow(): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     width: 208,
-    height: 68,
+    height: 96,
     show: false,
     frame: false,
     transparent: true,
@@ -685,6 +741,7 @@ async function boot(): Promise<void> {
     setDockIconVisible,
     setMenuBarIconVisible,
   });
+  logger.subscribe(scheduleActivityRefresh);
   await core.initialize();
   cliInstaller = new CliInstaller({
     executablePath: process.execPath,

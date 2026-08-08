@@ -131,4 +131,61 @@ describe("persistent activity log", () => {
     await expect(logger.flush()).resolves.toBeUndefined();
     expect(logger.list().at(-1)?.message).toBe("still available");
   });
+
+  it("persists sanitized structured traces and publishes live entries", async () => {
+    const directory = await tempPath("trace-logs");
+    const logger = new LaneLogger({ directory, now: () => 42 });
+    const received: unknown[] = [];
+    const unsubscribe = logger.subscribe((entry) => received.push(entry));
+    await logger.initialize();
+
+    logger.trace("info", "POST /v1/responses", {
+      kind: "gateway",
+      requestId: "request-1",
+      phase: "completed",
+      method: "post",
+      path: "/v1/responses",
+      model: "mock/mock-model",
+      provider: "mock",
+      status: 200,
+      durationMs: 17,
+      inputTokens: 4,
+      outputTokens: 8,
+      totalTokens: 12,
+    });
+    unsubscribe();
+    await logger.flush();
+
+    expect(received).toHaveLength(1);
+    expect(logger.list()[0]?.trace).toMatchObject({
+      method: "POST",
+      model: "mock/mock-model",
+      status: 200,
+      totalTokens: 12,
+    });
+    const persisted = await readFile(join(directory, (await readdir(directory))[0]!), "utf8");
+    expect(persisted).toContain('"kind":"gateway"');
+    expect(persisted).not.toContain("Authorization");
+  });
+
+  it("clears memory and persisted history before accepting new entries", async () => {
+    const directory = await tempPath("clear-logs");
+    let timestamp = 1;
+    const logger = new LaneLogger({ directory, now: () => timestamp });
+    await logger.initialize();
+    logger.info("old activity");
+
+    const clearing = logger.clear();
+    timestamp = 2;
+    logger.info("new activity");
+    await clearing;
+    await logger.flush();
+
+    expect(logger.list().map((entry) => entry.message)).toEqual(["new activity"]);
+    const contents = await Promise.all(
+      (await readdir(directory)).map((name) => readFile(join(directory, name), "utf8")),
+    );
+    expect(contents.join("\n")).not.toContain("old activity");
+    expect(contents.join("\n")).toContain("new activity");
+  });
 });

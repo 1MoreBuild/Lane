@@ -8,7 +8,7 @@ import {
   unlink,
 } from "node:fs/promises";
 import { join } from "node:path";
-import type { LogEntry } from "../shared/contracts.ts";
+import type { GatewayTrace, LogEntry } from "../shared/contracts.ts";
 
 const TOKEN_PATTERNS: RegExp[] = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
@@ -57,6 +57,62 @@ interface WritableLogFile {
   created: boolean;
 }
 
+type LogListener = (entry: LogEntry) => void;
+
+function boundedText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return redact(value).slice(0, maxLength);
+}
+
+function finiteInteger(value: unknown, minimum = 0): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= minimum
+    ? value
+    : undefined;
+}
+
+function sanitizeGatewayTrace(value: unknown): GatewayTrace | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const trace = value as Partial<GatewayTrace>;
+  if (
+    trace.kind !== "gateway" ||
+    !["started", "completed"].includes(trace.phase ?? "")
+  ) {
+    return undefined;
+  }
+  const requestId = boundedText(trace.requestId, 64);
+  const method = boundedText(trace.method, 12);
+  const path = boundedText(trace.path, 160);
+  if (!requestId || !method || !path || !path.startsWith("/")) return undefined;
+  const result: GatewayTrace = {
+    kind: "gateway",
+    requestId,
+    phase: trace.phase as GatewayTrace["phase"],
+    method: method.toUpperCase(),
+    path,
+  };
+  const model = boundedText(trace.model, 160);
+  const provider = boundedText(trace.provider, 80);
+  const status = finiteInteger(trace.status, 100);
+  const durationMs = finiteInteger(trace.durationMs);
+  const inputTokens = finiteInteger(trace.inputTokens);
+  const outputTokens = finiteInteger(trace.outputTokens);
+  const totalTokens = finiteInteger(trace.totalTokens);
+  const imageCount = finiteInteger(trace.imageCount);
+  const errorCode = boundedText(trace.errorCode, 80);
+  if (typeof trace.stream === "boolean") result.stream = trace.stream;
+  if (model) result.model = model;
+  if (provider) result.provider = provider;
+  if (status !== undefined) result.status = status;
+  if (durationMs !== undefined) result.durationMs = durationMs;
+  if (inputTokens !== undefined) result.inputTokens = inputTokens;
+  if (outputTokens !== undefined) result.outputTokens = outputTokens;
+  if (totalTokens !== undefined) result.totalTokens = totalTokens;
+  if (imageCount !== undefined) result.imageCount = imageCount;
+  if (errorCode) result.errorCode = errorCode;
+  if (typeof trace.cancelled === "boolean") result.cancelled = trace.cancelled;
+  return result;
+}
+
 function isLogEntry(value: unknown): value is LogEntry {
   if (!value || typeof value !== "object") return false;
   const entry = value as Partial<LogEntry>;
@@ -64,7 +120,8 @@ function isLogEntry(value: unknown): value is LogEntry {
     typeof entry.timestamp === "number" &&
     Number.isFinite(entry.timestamp) &&
     ["info", "warn", "error"].includes(entry.level ?? "") &&
-    typeof entry.message === "string"
+    typeof entry.message === "string" &&
+    (entry.trace === undefined || sanitizeGatewayTrace(entry.trace) !== undefined)
   );
 }
 
@@ -80,6 +137,7 @@ export class LaneLogger {
   private initialized = false;
   private persistenceEnabled: boolean;
   private lastCleanupAt = 0;
+  private readonly listeners = new Set<LogListener>();
 
   constructor(options: LaneLoggerOptions = {}) {
     this.directory = options.directory;
@@ -159,7 +217,12 @@ export class LaneLogger {
         try {
           const entry: unknown = JSON.parse(line);
           if (isLogEntry(entry)) {
-            loaded.push({ ...entry, message: redact(entry.message) });
+            const trace = entry.trace ? sanitizeGatewayTrace(entry.trace) : undefined;
+            loaded.push({
+              ...entry,
+              message: redact(entry.message),
+              ...(trace ? { trace } : {}),
+            });
           }
         } catch {
           // A partial final line must not hide earlier valid activity.
@@ -210,11 +273,13 @@ export class LaneLogger {
     if (target.created) await this.cleanup();
   }
 
-  log(level: LogEntry["level"], message: unknown): void {
+  log(level: LogEntry["level"], message: unknown, trace?: GatewayTrace): void {
+    const sanitizedTrace = trace ? sanitizeGatewayTrace(trace) : undefined;
     const entry: LogEntry = {
       timestamp: this.now(),
       level,
       message: redact(message),
+      ...(sanitizedTrace ? { trace: sanitizedTrace } : {}),
     };
     this.entries.push(entry);
     if (this.entries.length > this.maxEntries) this.entries.shift();
@@ -225,6 +290,17 @@ export class LaneLogger {
           // Activity persistence is diagnostic; it must never stop the gateway.
         });
     }
+    for (const listener of this.listeners) {
+      try {
+        listener({ ...entry });
+      } catch {
+        // A UI observer must never interrupt the gateway or persistence.
+      }
+    }
+  }
+
+  trace(level: LogEntry["level"], message: unknown, trace: GatewayTrace): void {
+    this.log(level, message, trace);
   }
 
   info(message: unknown): void {
@@ -240,7 +316,34 @@ export class LaneLogger {
   }
 
   list(): LogEntry[] {
-    return this.entries.map((entry) => ({ ...entry }));
+    return this.entries.map((entry) => ({
+      ...entry,
+      ...(entry.trace ? { trace: { ...entry.trace } } : {}),
+    }));
+  }
+
+  async clear(): Promise<void> {
+    this.entries.splice(0, this.entries.length);
+    if (!this.directory || !this.persistenceEnabled) return;
+    const clearPersisted = this.writeChain.then(async () => {
+      for (const file of await this.files()) {
+        try {
+          await unlink(file.path);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+      this.lastCleanupAt = this.now();
+    });
+    this.writeChain = clearPersisted.catch(() => {
+      // Clearing diagnostics must not make future gateway logging unavailable.
+    });
+    await clearPersisted;
+  }
+
+  subscribe(listener: LogListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   async flush(): Promise<void> {

@@ -537,6 +537,12 @@ export class AppCore {
     };
   }
 
+  async clearActivity(): Promise<LaneState> {
+    this.requireInitialized();
+    await this.logger.clear();
+    return await this.getState();
+  }
+
   async shutdown(): Promise<void> {
     await this.gateway.stop();
     await this.logger.flush();

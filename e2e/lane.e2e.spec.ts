@@ -472,6 +472,50 @@ test.describe("Lane packaged product journeys", () => {
         (request) => request.authorization === "Bearer mock-upstream-key",
       ),
     ).toBe(true);
+
+    await page.getByRole("button", { name: "Open Activity" }).click();
+    const activity = page.getByRole("region", { name: "Activity" });
+    await expect(activity.getByText("/v1/responses", { exact: true }).first()).toBeVisible();
+    await expect(activity.getByText(/mock-model/).first()).toBeVisible();
+    await expect(activity.getByText(/\d+ in · \d+ out/).first()).toBeVisible();
+    await expect(activity.getByText("/v1/images/generations", { exact: true })).toBeVisible();
+    await expect(activity.getByText(/1 image/).first()).toBeVisible();
+    await activity.getByRole("button", { name: "Clear activity" }).click();
+    await expect(activity.getByText("No recent activity", { exact: true })).toBeVisible();
+  });
+
+  test("copies an endpoint cURL and exposes Quit in the menu bar", async () => {
+    const { app, page } = context.session!;
+    const { apiBaseUrl, clientKey } = await startGateway(page);
+    await app.evaluate(({ clipboard }) => {
+      const capture = globalThis as typeof globalThis & { laneE2eClipboard?: string };
+      capture.laneE2eClipboard = "";
+      clipboard.writeText = (text: string) => {
+        capture.laneE2eClipboard = text;
+      };
+    });
+
+    await page.getByRole("button", { name: "View API endpoints" }).click();
+    const copyModelsCurl = page.getByRole("button", { name: "Copy Models cURL" });
+    await copyModelsCurl.click();
+    await expect(copyModelsCurl.locator("svg")).toBeVisible();
+    const copied = await app.evaluate(() =>
+      (globalThis as typeof globalThis & { laneE2eClipboard?: string })
+        .laneE2eClipboard,
+    );
+    expect(copied).toBe(
+      `curl --fail-with-body '${apiBaseUrl}/models' \\
+  -H 'Authorization: Bearer ${clientKey}'`,
+    );
+
+    await page.evaluate(() => window.lane.setMenuBarIconVisible(true));
+    await expect.poll(() => app.windows().length).toBe(2);
+    const menubarPage = app.windows().find((candidate) =>
+      candidate.url().includes("menubar.html"),
+    );
+    expect(menubarPage).toBeDefined();
+    await expect(menubarPage!.getByRole("button", { name: "Open Lane" })).toBeVisible();
+    await expect(menubarPage!.getByRole("button", { name: "Quit Lane" })).toBeVisible();
   });
 
   test("fits the default window and changes model defaults in the UI", async (

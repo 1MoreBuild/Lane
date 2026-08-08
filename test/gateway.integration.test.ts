@@ -9,6 +9,7 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GatewayServer } from "../src/main/gateway.ts";
 import { buildImageModels, PiAiImageRuntime } from "../src/main/image-runtime.ts";
+import { LaneLogger } from "../src/main/logger.ts";
 import { PiAiRuntime } from "../src/main/pi-runtime.ts";
 import type { ProviderConfig, ReasoningEffort } from "../src/shared/contracts.ts";
 import { freePort } from "./helpers.ts";
@@ -91,6 +92,7 @@ async function setup(options: {
     [config],
     "mock/mock-image",
   );
+  const logger = new LaneLogger();
   const gateway = new GatewayServer(
     new PiAiRuntime(
       models,
@@ -100,6 +102,7 @@ async function setup(options: {
       options.defaultReasoningEffort,
       options.defaultSpeedMode,
     ),
+    logger,
   );
   const port = await freePort();
   await gateway.start(
@@ -111,7 +114,7 @@ async function setup(options: {
     clientKey,
   );
   resources.push({ gateway, upstream });
-  return { upstream, gateway, url: `http://127.0.0.1:${port}` };
+  return { upstream, gateway, logger, url: `http://127.0.0.1:${port}` };
 }
 
 function headers() {
@@ -130,6 +133,41 @@ afterEach(async () => {
 });
 
 describe("gateway with a local pi-ai mock provider", () => {
+  it("records redacted correlated request traces with model usage", async () => {
+    const { url, logger } = await setup();
+    const secretPrompt = "trace-secret-prompt";
+    const response = await fetch(`${url}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ model: "mock/mock-model", input: secretPrompt }),
+    });
+    expect(response.status).toBe(200);
+    await response.json();
+
+    const traces = logger.list().filter((entry) => entry.trace?.path === "/v1/responses");
+    expect(traces).toHaveLength(2);
+    expect(traces[0]?.trace).toMatchObject({
+      phase: "started",
+      method: "POST",
+      path: "/v1/responses",
+    });
+    expect(traces[1]?.trace).toMatchObject({
+      phase: "completed",
+      method: "POST",
+      path: "/v1/responses",
+      model: "mock/mock-model",
+      provider: "mock",
+      status: 200,
+      stream: false,
+    });
+    expect(traces[1]?.trace?.durationMs).toBeGreaterThanOrEqual(0);
+    expect(traces[1]?.trace?.inputTokens).toBeTypeOf("number");
+    expect(traces[1]?.trace?.outputTokens).toBeTypeOf("number");
+    expect(JSON.stringify(logger.list())).not.toContain(secretPrompt);
+    expect(JSON.stringify(logger.list())).not.toContain("hello from mock");
+    expect(JSON.stringify(logger.list())).not.toContain(clientKey);
+  });
+
   it("serves models and both non-streaming protocols", async () => {
     const { url, upstream } = await setup();
     const models = await fetch(`${url}/v1/models`, { headers: headers() });
@@ -385,7 +423,7 @@ describe("gateway with a local pi-ai mock provider", () => {
   });
 
   it("maps upstream errors and aborts the upstream request when the client disconnects", async () => {
-    const { url, upstream } = await setup();
+    const { url, upstream, logger } = await setup();
     const failed = await fetch(`${url}/v1/chat/completions`, {
       method: "POST",
       headers: headers(),
@@ -398,6 +436,9 @@ describe("gateway with a local pi-ai mock provider", () => {
     const failure = await failed.json() as any;
     expect(failure.error.type).toBe("provider_error");
     expect(failure.error.message).toBe("Provider request failed");
+    expect(
+      logger.list().find((entry) => entry.trace?.errorCode === "provider_error")?.trace,
+    ).toMatchObject({ status: 502, phase: "completed" });
 
     const controller = new AbortController();
     const slow = await fetch(`${url}/v1/chat/completions`, {
@@ -415,6 +456,15 @@ describe("gateway with a local pi-ai mock provider", () => {
     controller.abort();
     await expect(reader.read()).rejects.toThrow();
     await vi.waitFor(() => expect(upstream.abortedRequests).toBeGreaterThan(0));
+    await vi.waitFor(() =>
+      expect(
+        logger.list().find((entry) => entry.trace?.cancelled)?.trace,
+      ).toMatchObject({
+        phase: "completed",
+        cancelled: true,
+        errorCode: "request_cancelled",
+      }),
+    );
   }, 15_000);
 
   it("maps image errors and aborts image generation when the client disconnects", async () => {

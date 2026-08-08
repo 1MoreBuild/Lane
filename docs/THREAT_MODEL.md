@@ -109,9 +109,11 @@ short-lived port conflict on the configured port. If the conflict persists, the
 desktop UI can move to an available port only after confirmation; Lane does not
 terminate the unknown process holding the old port.
 
-Activity is persisted only after redaction. It excludes prompts, model output,
-request headers and bodies, the Lane client key, provider API keys, and OAuth
-tokens. Files use mode `0600` inside a mode `0700` directory where POSIX
+Activity is persisted only after redaction. Gateway traces contain a random
+request ID, method, route, streaming mode, resolved model/provider, HTTP status,
+latency, token or image counts, cancellation state, and a bounded error code.
+They exclude prompts, model output, request headers and bodies, the Lane client
+key, provider API keys, and OAuth tokens. Files use mode `0600` inside a mode `0700` directory where POSIX
 permissions are available. Daily files rotate at 1 MiB; files older than 7 days
 are removed; the directory is capped at 5 MiB by deleting the oldest files
 first. Corrupt or partial lines are ignored during recovery. A persistence

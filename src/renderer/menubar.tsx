@@ -59,6 +59,10 @@ function App(): ReactNode {
         <button onClick={() => void window.lane.openMainWindow()} type="button">
           <span>Open Lane</span>
         </button>
+        <div aria-hidden="true" className="menubar-divider" />
+        <button onClick={() => void window.lane.quitApp()} type="button">
+          <span>Quit Lane</span>
+        </button>
       </footer>
     </main>
   );

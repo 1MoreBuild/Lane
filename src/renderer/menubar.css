@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./scrollbar.css";
 
 @source "../components";
 @source "../lib";
@@ -22,6 +23,8 @@
   --divider: rgb(0 0 0 / 10%);
   --switch: oklch(0.2 0 0);
   --switch-knob: oklch(0.94 0.002 240 / 66%);
+  --lane-scrollbar-thumb: rgb(24 24 24 / 28%);
+  --lane-scrollbar-thumb-hover: rgb(24 24 24 / 42%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -36,6 +39,8 @@
     --divider: rgb(255 255 255 / 14%);
     --switch: oklch(0.922 0 0);
     --switch-knob: oklch(0.205 0 0);
+    --lane-scrollbar-thumb: rgb(242 242 242 / 28%);
+    --lane-scrollbar-thumb-hover: rgb(242 242 242 / 42%);
   }
 }
 
@@ -134,8 +139,15 @@ button {
 }
 
 .menubar-footer {
+  border-top: 1px solid var(--divider);
   margin: 0 6px;
   padding: 0 0 3px;
+}
+
+.menubar-divider {
+  background: var(--divider);
+  height: 1px;
+  margin: 1px 5px;
 }
 
 .menubar-footer button {

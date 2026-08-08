@@ -137,8 +137,6 @@ npm run check
 - [Unsigned test builds](docs/TEST_BUILDS.md)
 - [Release checklist](docs/RELEASING.md)
 
-Lane is independent and is not part of Transly.
-
 ## License
 
 [MIT](LICENSE) • Haitian ([1MoreBuild](https://github.com/1MoreBuild))
