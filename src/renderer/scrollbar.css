@@ -9,19 +9,23 @@
 }
 
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-  background: transparent;
+  width: 8px;
+  height: 8px;
+  -webkit-appearance: none;
+  background-color: transparent !important;
 }
 
 *::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece,
 *::-webkit-scrollbar-corner {
-  background: transparent;
+  border: 0;
+  background-color: transparent !important;
+  box-shadow: none;
 }
 
 *::-webkit-scrollbar-thumb {
   min-height: 28px;
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   border-radius: 999px;
   background: var(--lane-scrollbar-thumb);
   background-clip: content-box;

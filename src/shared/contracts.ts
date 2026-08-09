@@ -80,6 +80,7 @@ export interface LaneState {
   launchAtLogin: boolean;
   visibility: AppVisibilityConfig;
   cliEnabled: boolean;
+  activityCaptureEnabled: boolean;
   clientKey: string;
   logs: LogEntry[];
 }
@@ -111,11 +112,25 @@ export interface GatewayTrace {
   cancelled?: boolean;
 }
 
+export interface GatewayCapturedBody {
+  body: string;
+  contentType?: string;
+  capturedBytes: number;
+  totalBytes: number;
+  truncated: boolean;
+}
+
+export interface GatewayCapture {
+  request?: GatewayCapturedBody;
+  response?: GatewayCapturedBody;
+}
+
 export interface LogEntry {
   timestamp: number;
   level: "info" | "warn" | "error";
   message: string;
   trace?: GatewayTrace;
+  capture?: GatewayCapture;
 }
 
 export interface AddProviderInput {
@@ -134,6 +149,7 @@ export interface LaneRendererApi {
   readonly platform: string;
   getState(): Promise<LaneState>;
   clearActivity(): Promise<LaneState>;
+  setActivityCapture(enabled: boolean): Promise<LaneState>;
   getUpdateState(): Promise<LaneUpdateState>;
   downloadUpdate(): Promise<void>;
   addProvider(input: AddProviderInput): Promise<LaneState>;

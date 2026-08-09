@@ -398,6 +398,14 @@ test.describe("Lane packaged product journeys", () => {
     const page = context.session!.page;
     await connectMockProvider(page, context.upstream);
     const { apiBaseUrl, clientKey } = await startGateway(page);
+    await page.getByRole("button", { name: "Open Activity" }).click();
+    const activity = page.getByRole("region", { name: "Activity" });
+    const capture = activity.getByRole("switch", {
+      name: "Capture raw request and response bodies",
+    });
+    await capture.click();
+    await expect(capture).toBeChecked();
+    await page.getByRole("button", { name: "Show Overview" }).click();
 
     const health = await fetch(`${apiBaseUrl.replace(/\/v1$/, "")}/health`, {
       headers: headers(clientKey),
@@ -474,12 +482,23 @@ test.describe("Lane packaged product journeys", () => {
     ).toBe(true);
 
     await page.getByRole("button", { name: "Open Activity" }).click();
-    const activity = page.getByRole("region", { name: "Activity" });
     await expect(activity.getByText("/v1/responses", { exact: true }).first()).toBeVisible();
     await expect(activity.getByText(/mock-model/).first()).toBeVisible();
     await expect(activity.getByText(/\d+ in · \d+ out/).first()).toBeVisible();
     await expect(activity.getByText("/v1/images/generations", { exact: true })).toBeVisible();
     await expect(activity.getByText(/1 image/).first()).toBeVisible();
+    await activity
+      .getByRole("button", { name: /POST.*\/v1\/responses.*200/ })
+      .first()
+      .click();
+    await expect(activity.getByRole("tab", { name: "Request" })).toBeVisible();
+    await expect(activity.getByLabel("Captured body")).toContainText('"input": "hello"');
+    await activity.getByRole("tab", { name: "Response" }).click();
+    await expect(activity.getByText(/response events/)).toBeVisible();
+    await expect(activity.getByRole("button", { name: /Generated text/ })).toBeVisible();
+    await expect(activity.getByLabel("Captured body")).toContainText("hello from mock");
+    await activity.getByRole("button", { name: "Raw" }).click();
+    await expect(activity.getByLabel("Captured body")).toContainText("hello from mock");
     await activity.getByRole("button", { name: "Clear activity" }).click();
     await expect(activity.getByText("No recent activity", { exact: true })).toBeVisible();
   });

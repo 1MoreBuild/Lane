@@ -26,6 +26,20 @@ const discover = async () => [
 ];
 
 describe("persistence and lifecycle", () => {
+  it("keeps raw activity capture scoped to the current app process", async () => {
+    const shared = await stores();
+    const first = new AppCore({ ...shared, discover });
+    await first.initialize();
+    expect((await first.getState()).activityCaptureEnabled).toBe(false);
+    expect((await first.setActivityCapture(true)).activityCaptureEnabled).toBe(true);
+    await first.shutdown();
+
+    const second = new AppCore({ ...shared, discover });
+    await second.initialize();
+    expect((await second.getState()).activityCaptureEnabled).toBe(false);
+    await second.shutdown();
+  });
+
   it("migrates legacy settings to High reasoning effort", async () => {
     const settingsPath = await tempPath("legacy-settings.json");
     const legacy = defaultConfig() as Partial<ReturnType<typeof defaultConfig>>;

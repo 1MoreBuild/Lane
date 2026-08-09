@@ -8,7 +8,11 @@ import {
   unlink,
 } from "node:fs/promises";
 import { join } from "node:path";
-import type { GatewayTrace, LogEntry } from "../shared/contracts.ts";
+import type {
+  GatewayCapture,
+  GatewayTrace,
+  LogEntry,
+} from "../shared/contracts.ts";
 
 const TOKEN_PATTERNS: RegExp[] = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
@@ -23,6 +27,7 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 export const DEFAULT_LOG_RETENTION_DAYS = 7;
 export const DEFAULT_LOG_FILE_BYTES = 1024 * 1024;
 export const DEFAULT_LOG_TOTAL_BYTES = 5 * 1024 * 1024;
+export const DEFAULT_CAPTURE_TOTAL_BYTES = 32 * 1024 * 1024;
 
 export function redact(value: unknown): string {
   let text = value instanceof Error ? value.message : String(value);
@@ -42,6 +47,7 @@ export interface LaneLoggerOptions {
   retentionDays?: number;
   maxFileBytes?: number;
   maxTotalBytes?: number;
+  maxCaptureBytes?: number;
   now?: () => number;
 }
 
@@ -58,6 +64,13 @@ interface WritableLogFile {
 }
 
 type LogListener = (entry: LogEntry) => void;
+
+function cloneCapture(capture: GatewayCapture): GatewayCapture {
+  return {
+    ...(capture.request ? { request: { ...capture.request } } : {}),
+    ...(capture.response ? { response: { ...capture.response } } : {}),
+  };
+}
 
 function boundedText(value: unknown, maxLength: number): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -132,6 +145,7 @@ export class LaneLogger {
   private readonly retentionMs: number;
   private readonly maxFileBytes: number;
   private readonly maxTotalBytes: number;
+  private readonly maxCaptureBytes: number;
   private readonly now: () => number;
   private writeChain: Promise<void> = Promise.resolve();
   private initialized = false;
@@ -145,6 +159,7 @@ export class LaneLogger {
     this.retentionMs = (options.retentionDays ?? DEFAULT_LOG_RETENTION_DAYS) * DAY_MS;
     this.maxFileBytes = options.maxFileBytes ?? DEFAULT_LOG_FILE_BYTES;
     this.maxTotalBytes = options.maxTotalBytes ?? DEFAULT_LOG_TOTAL_BYTES;
+    this.maxCaptureBytes = options.maxCaptureBytes ?? DEFAULT_CAPTURE_TOTAL_BYTES;
     this.now = options.now ?? Date.now;
     this.persistenceEnabled = this.directory !== undefined;
   }
@@ -219,7 +234,8 @@ export class LaneLogger {
           if (isLogEntry(entry)) {
             const trace = entry.trace ? sanitizeGatewayTrace(entry.trace) : undefined;
             loaded.push({
-              ...entry,
+              timestamp: entry.timestamp,
+              level: entry.level,
               message: redact(entry.message),
               ...(trace ? { trace } : {}),
             });
@@ -265,7 +281,8 @@ export class LaneLogger {
     if (!this.directory || !this.persistenceEnabled) return;
     if (this.now() - this.lastCleanupAt >= DAY_MS) await this.cleanup();
     const target = await this.writablePath(entry.timestamp);
-    await appendFile(target.path, `${JSON.stringify(entry)}\n`, {
+    const { capture: _sessionOnlyCapture, ...persistedEntry } = entry;
+    await appendFile(target.path, `${JSON.stringify(persistedEntry)}\n`, {
       encoding: "utf8",
       mode: 0o600,
     });
@@ -273,16 +290,39 @@ export class LaneLogger {
     if (target.created) await this.cleanup();
   }
 
-  log(level: LogEntry["level"], message: unknown, trace?: GatewayTrace): void {
+  private trimCaptures(): void {
+    let retainedBytes = 0;
+    for (let index = this.entries.length - 1; index >= 0; index -= 1) {
+      const entry = this.entries[index];
+      if (!entry?.capture) continue;
+      const captureBytes =
+        (entry.capture.request?.capturedBytes ?? 0) +
+        (entry.capture.response?.capturedBytes ?? 0);
+      if (retainedBytes + captureBytes <= this.maxCaptureBytes) {
+        retainedBytes += captureBytes;
+      } else {
+        delete entry.capture;
+      }
+    }
+  }
+
+  log(
+    level: LogEntry["level"],
+    message: unknown,
+    trace?: GatewayTrace,
+    capture?: GatewayCapture,
+  ): void {
     const sanitizedTrace = trace ? sanitizeGatewayTrace(trace) : undefined;
     const entry: LogEntry = {
       timestamp: this.now(),
       level,
       message: redact(message),
       ...(sanitizedTrace ? { trace: sanitizedTrace } : {}),
+      ...(capture ? { capture: cloneCapture(capture) } : {}),
     };
     this.entries.push(entry);
     if (this.entries.length > this.maxEntries) this.entries.shift();
+    this.trimCaptures();
     if (this.persistenceEnabled) {
       this.writeChain = this.writeChain
         .then(() => this.persist(entry))
@@ -292,15 +332,24 @@ export class LaneLogger {
     }
     for (const listener of this.listeners) {
       try {
-        listener({ ...entry });
+        listener({
+          ...entry,
+          ...(entry.trace ? { trace: { ...entry.trace } } : {}),
+          ...(entry.capture ? { capture: cloneCapture(entry.capture) } : {}),
+        });
       } catch {
         // A UI observer must never interrupt the gateway or persistence.
       }
     }
   }
 
-  trace(level: LogEntry["level"], message: unknown, trace: GatewayTrace): void {
-    this.log(level, message, trace);
+  trace(
+    level: LogEntry["level"],
+    message: unknown,
+    trace: GatewayTrace,
+    capture?: GatewayCapture,
+  ): void {
+    this.log(level, message, trace, capture);
   }
 
   info(message: unknown): void {
@@ -319,6 +368,7 @@ export class LaneLogger {
     return this.entries.map((entry) => ({
       ...entry,
       ...(entry.trace ? { trace: { ...entry.trace } } : {}),
+      ...(entry.capture ? { capture: cloneCapture(entry.capture) } : {}),
     }));
   }
 

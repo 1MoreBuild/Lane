@@ -1,6 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
-import type { GatewayConfig } from "../shared/contracts.ts";
+import type {
+  GatewayCapture,
+  GatewayCapturedBody,
+  GatewayConfig,
+} from "../shared/contracts.ts";
 import { LaneLogger, redact } from "./logger.ts";
 import {
   chatCompletion,
@@ -23,6 +27,55 @@ import {
 
 // A 20 MiB input image expands by roughly one third when encoded as a data URL.
 const MAX_BODY_BYTES = 30 * 1024 * 1024;
+export const MAX_CAPTURE_BYTES = 1024 * 1024;
+
+class BodyRecorder {
+  private readonly chunks: Buffer[] = [];
+  private capturedBytes = 0;
+  private totalBytes = 0;
+
+  append(value: Buffer | string): void {
+    const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    this.totalBytes += buffer.length;
+    const remaining = MAX_CAPTURE_BYTES - this.capturedBytes;
+    if (remaining <= 0) return;
+    const captured = buffer.subarray(0, remaining);
+    this.chunks.push(captured);
+    this.capturedBytes += captured.length;
+  }
+
+  snapshot(contentType: string | undefined): GatewayCapturedBody | undefined {
+    if (this.totalBytes === 0) return undefined;
+    const captured = Buffer.concat(this.chunks);
+    let body = captured.toString("utf8");
+    let representedBytes = captured.length;
+    for (let trim = 0; trim <= Math.min(3, captured.length); trim += 1) {
+      const candidate = captured.subarray(0, captured.length - trim);
+      try {
+        body = new TextDecoder("utf-8", { fatal: true }).decode(candidate);
+        representedBytes = candidate.length;
+        break;
+      } catch {
+        // A capacity boundary may split one UTF-8 code point; omit that partial tail.
+      }
+    }
+    return {
+      body,
+      ...(contentType ? { contentType } : {}),
+      capturedBytes: representedBytes,
+      totalBytes: this.totalBytes,
+      truncated: representedBytes < this.totalBytes,
+    };
+  }
+}
+
+const responseRecorders = new WeakMap<ServerResponse, BodyRecorder>();
+
+function headerText(value: string | string[] | number | undefined): string | undefined {
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "number") return String(value);
+  return value;
+}
 
 export class GatewayStartError extends Error {
   constructor(
@@ -66,6 +119,7 @@ export class RuntimeHolder implements ModelRuntime {
 
 function json(response: ServerResponse, status: number, value: unknown): void {
   const body = JSON.stringify(value);
+  responseRecorders.get(response)?.append(body);
   response.statusCode = status;
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.setHeader("Content-Length", Buffer.byteLength(body));
@@ -89,11 +143,15 @@ function openAiError(error: unknown): { status: number; body: unknown } {
   };
 }
 
-async function readJson(request: IncomingMessage): Promise<unknown> {
+async function readJson(
+  request: IncomingMessage,
+  recorder?: BodyRecorder,
+): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    recorder?.append(buffer);
     size += buffer.length;
     if (size > MAX_BODY_BYTES) {
       throw new RuntimeError("Request body exceeds 30 MiB", 413, "request_too_large");
@@ -223,8 +281,14 @@ function parseImageRequest(value: unknown): CanonicalImageRequest {
 }
 
 function sse(response: ServerResponse, event: string | undefined, data: unknown): void {
-  if (event) response.write(`event: ${event}\n`);
-  response.write(`data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`);
+  if (event) {
+    const eventLine = `event: ${event}\n`;
+    responseRecorders.get(response)?.append(eventLine);
+    response.write(eventLine);
+  }
+  const dataLine = `data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`;
+  responseRecorders.get(response)?.append(dataLine);
+  response.write(dataLine);
 }
 
 function allowOrigin(
@@ -458,6 +522,7 @@ export class GatewayServer {
   private server: Server | undefined;
   private endpoint: string | undefined;
   private allowedOrigins: readonly string[] = [];
+  private captureEnabled = false;
   lastError: string | undefined;
 
   constructor(
@@ -467,6 +532,14 @@ export class GatewayServer {
 
   isRunning(): boolean {
     return this.server?.listening === true;
+  }
+
+  isCaptureEnabled(): boolean {
+    return this.captureEnabled;
+  }
+
+  setCaptureEnabled(enabled: boolean): void {
+    this.captureEnabled = enabled;
   }
 
   getEndpoint(port = 3210): string {
@@ -490,6 +563,10 @@ export class GatewayServer {
         }
       })();
       const shouldTrace = method !== "OPTIONS";
+      const captureThisRequest = shouldTrace && this.captureEnabled;
+      const requestRecorder = captureThisRequest ? new BodyRecorder() : undefined;
+      const responseRecorder = captureThisRequest ? new BodyRecorder() : undefined;
+      if (responseRecorder) responseRecorders.set(response, responseRecorder);
       let execution: GatewayExecutionSummary = {};
       let stream: boolean | undefined;
       let errorCode: string | undefined;
@@ -588,7 +665,7 @@ export class GatewayServer {
           }
           const result = await generateImages.call(
             this.runtime,
-            parseImageRequest(await readJson(request)),
+            parseImageRequest(await readJson(request, requestRecorder)),
             controller.signal,
           );
           execution = { model: result.model, imageCount: result.images.length };
@@ -607,7 +684,7 @@ export class GatewayServer {
           request.method === "POST" &&
           (url.pathname === "/v1/chat/completions" || url.pathname === "/v1/responses")
         ) {
-          const body = await readJson(request);
+          const body = await readJson(request, requestRecorder);
           const wantsStream =
             Boolean(body) &&
             typeof body === "object" &&
@@ -674,6 +751,18 @@ export class GatewayServer {
           const status = traceStatus ?? response.statusCode;
           const level = cancelled || status >= 400 ? (status >= 500 ? "error" : "warn") : "info";
           const provider = providerFromModel(execution.model);
+          const capturedRequest = requestRecorder?.snapshot(
+            headerText(request.headers["content-type"]),
+          );
+          const capturedResponse = responseRecorder?.snapshot(
+            headerText(response.getHeader("content-type")),
+          );
+          const capture: GatewayCapture | undefined = captureThisRequest
+            ? {
+                ...(capturedRequest ? { request: capturedRequest } : {}),
+                ...(capturedResponse ? { response: capturedResponse } : {}),
+              }
+            : undefined;
           this.logger.trace(
             level,
             `${method} ${path} · ${cancelled ? "cancelled" : status} · ${durationMs} ms`,
@@ -701,8 +790,10 @@ export class GatewayServer {
               ...(errorCode ? { errorCode } : {}),
               ...(cancelled ? { cancelled: true } : {}),
             },
+            capture && (capture.request || capture.response) ? capture : undefined,
           );
         }
+        responseRecorders.delete(response);
       }
     });
     await new Promise<void>((resolve, reject) => {

@@ -36,6 +36,15 @@ if (!pkg.build?.mac?.target?.includes("zip")) failures.push("macOS auto-update Z
 if (pkg.build?.mac?.electronUpdaterCompatibility !== ">=2.16") {
   failures.push("macOS updater metadata must use the architecture-aware files format");
 }
+if (pkg.build?.mac?.hardenedRuntime !== true || pkg.build?.mac?.notarize !== true) {
+  failures.push("stable macOS packages must enable hardened runtime and notarization");
+}
+if (
+  pkg.build?.mac?.entitlements !== "build/entitlements.mac.plist" ||
+  pkg.build?.mac?.entitlementsInherit !== "build/entitlements.mac.inherit.plist"
+) {
+  failures.push("macOS signing must use the reviewed Lane entitlements");
+}
 if (!pkg.scripts?.["package:mac:arm64"]?.includes("--arm64")) {
   failures.push("missing Apple Silicon macOS test package script");
 }
@@ -152,6 +161,12 @@ if (
 ) {
   failures.push("stable release workflow does not build updater artifacts");
 }
+if (
+  !stableReleaseWorkflow.includes("workflow_dispatch:") ||
+  !stableReleaseWorkflow.includes("if: github.event_name == 'push'")
+) {
+  failures.push("stable release workflow lacks a non-publishing signed release-candidate run");
+}
 const stableBuildHeader = stableReleaseWorkflow.slice(
   stableReleaseWorkflow.indexOf("  build:"),
   stableReleaseWorkflow.indexOf("    steps:"),
@@ -179,16 +194,25 @@ if (
   failures.push("stable release workflow omits macOS updater metadata or ZIP");
 }
 if (
-  !stableReleaseWorkflow.includes("codesign --verify") ||
-  !stableReleaseWorkflow.includes("xcrun stapler validate")
+  !stableReleaseWorkflow.includes("bash scripts/verify-signed-macos.sh")
 ) {
   failures.push("stable release workflow does not verify signing and notarization");
+}
+if (
+  !stableReleaseWorkflow.includes("xcrun notarytool submit") ||
+  !stableReleaseWorkflow.includes("xcrun stapler staple")
+) {
+  failures.push("stable release workflow does not notarize and staple final DMGs");
+}
+if (!stableReleaseWorkflow.includes("npm run finalize:mac:update-metadata")) {
+  failures.push("stable release workflow leaves stale DMG checksums in update metadata");
 }
 for (const secret of [
   "MAC_CSC_LINK",
   "MAC_CSC_KEY_PASSWORD",
-  "APPLE_ID",
-  "APPLE_APP_SPECIFIC_PASSWORD",
+  "APPLE_API_KEY_P8_BASE64",
+  "APPLE_API_KEY_ID",
+  "APPLE_API_ISSUER",
   "APPLE_TEAM_ID",
 ]) {
   if (!stableReleaseWorkflow.includes(`secrets.${secret}`)) {
@@ -204,8 +228,7 @@ if (
 }
 const stablePublish = stableReleaseWorkflow.indexOf("gh release create");
 for (const requiredGate of [
-  "codesign --verify",
-  "xcrun stapler validate",
+  "bash scripts/verify-signed-macos.sh",
   "npm run e2e:dmg:mac",
   "shasum -a 256",
 ]) {

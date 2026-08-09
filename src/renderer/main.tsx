@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider, useTheme } from "next-themes";
@@ -9,6 +9,7 @@ import {
   Activity,
   Braces,
   Check,
+  ChevronDown,
   Clipboard,
   Code2,
   Download,
@@ -34,10 +35,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   Dialog,
   DialogClose,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -57,7 +62,9 @@ import {
   SelectLabel,
   SelectTrigger,
 } from "@/components/ui/select";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -74,6 +81,7 @@ import {
 import type {
   AddProviderInput,
   CliIntegrationState,
+  GatewayCapture,
   GatewayTrace,
   LaneState,
   LaneUpdateState,
@@ -83,6 +91,11 @@ import type {
   ReasoningEffort,
 } from "../shared/contracts.ts";
 import "./style.css";
+
+const CodeViewer = lazy(async () => {
+  const module = await import("@/components/ui/code-viewer");
+  return { default: module.CodeViewer };
+});
 
 const PROVIDER_OPTIONS = [
   {
@@ -187,6 +200,7 @@ interface ActivityItem {
   level: LogEntry["level"];
   message: string;
   trace?: GatewayTrace;
+  capture?: GatewayCapture;
 }
 
 function activityItems(logs: readonly LogEntry[]): ActivityItem[] {
@@ -211,6 +225,7 @@ function activityItems(logs: readonly LogEntry[]): ActivityItem[] {
         level: entry.level,
         message: entry.message,
         trace: { ...entry.trace },
+        ...(entry.capture ? { capture: entry.capture } : {}),
       });
       continue;
     }
@@ -221,6 +236,7 @@ function activityItems(logs: readonly LogEntry[]): ActivityItem[] {
       level: entry.level,
       message: entry.message,
       trace: { ...existing.trace, ...entry.trace },
+      ...(entry.capture ? { capture: entry.capture } : {}),
     };
   }
   return items.toReversed();
@@ -254,6 +270,32 @@ function traceDetails(trace: GatewayTrace): string[] {
     details.push(`${trace.imageCount} ${trace.imageCount === 1 ? "image" : "images"}`);
   }
   return details;
+}
+
+function CaptureDetails({ capture }: { capture: GatewayCapture }): ReactNode {
+  const initialTab = capture.request ? "request" : "response";
+  return (
+    <Tabs defaultValue={initialTab}>
+      <TabsList aria-label="Captured HTTP bodies">
+        {capture.request && <TabsTrigger value="request">Request</TabsTrigger>}
+        {capture.response && <TabsTrigger value="response">Response</TabsTrigger>}
+      </TabsList>
+      {capture.request && (
+        <TabsContent value="request">
+          <Suspense fallback={<div className="h-20 rounded-lg bg-muted/50" />}>
+            <CodeViewer capture={capture.request} />
+          </Suspense>
+        </TabsContent>
+      )}
+      {capture.response && (
+        <TabsContent value="response">
+          <Suspense fallback={<div className="h-20 rounded-lg bg-muted/50" />}>
+            <CodeViewer capture={capture.response} />
+          </Suspense>
+        </TabsContent>
+      )}
+    </Tabs>
+  );
 }
 
 function FieldLabel({ children }: { children: ReactNode }): ReactNode {
@@ -386,7 +428,7 @@ function ThemeSetting(): ReactNode {
   );
 }
 
-type UtilityPanel = "activity" | "settings";
+type AppView = "activity" | "overview";
 
 function UpdateControl({
   state,
@@ -429,39 +471,41 @@ function UpdateControl({
   );
 }
 
-function UtilityPanels({
-  activityContent,
+function UtilityControls({
+  activityOpen,
+  onActivityToggle,
   settingsContent,
 }: {
-  activityContent: ReactNode;
+  activityOpen: boolean;
+  onActivityToggle: () => void;
   settingsContent: ReactNode;
 }): ReactNode {
   return (
-    <Popover<UtilityPanel>>
-      {({ payload }) => (
-        <>
-          <PopoverTrigger
-            aria-label="Open Activity"
-            id="lane-activity-trigger"
-            payload="activity"
-            render={<Button size="icon-sm" title="Activity" variant="ghost" />}
-          >
-            <Activity />
-          </PopoverTrigger>
-          <PopoverTrigger
-            aria-label="Open Settings"
-            id="lane-settings-trigger"
-            payload="settings"
-            render={<Button size="icon-sm" title="Settings" variant="ghost" />}
-          >
-            <Settings2 />
-          </PopoverTrigger>
-          <PopoverContent className="w-[23rem] max-w-[calc(100vw-1.5rem)]">
-            {payload === "settings" ? settingsContent : activityContent}
-          </PopoverContent>
-        </>
-      )}
-    </Popover>
+    <>
+      <Button
+        aria-label={activityOpen ? "Show Overview" : "Open Activity"}
+        aria-pressed={activityOpen}
+        id="lane-activity-trigger"
+        onClick={onActivityToggle}
+        size="icon-sm"
+        title={activityOpen ? "Overview" : "Activity"}
+        variant={activityOpen ? "secondary" : "ghost"}
+      >
+        <Activity />
+      </Button>
+      <Popover>
+        <PopoverTrigger
+          aria-label="Open Settings"
+          id="lane-settings-trigger"
+          render={<Button size="icon-sm" title="Settings" variant="ghost" />}
+        >
+          <Settings2 />
+        </PopoverTrigger>
+        <PopoverContent className="w-[23rem] max-w-[calc(100vw-1.5rem)]">
+          {settingsContent}
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }
 
@@ -475,6 +519,8 @@ function App(): ReactNode {
   const [keyVisible, setKeyVisible] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [activityClearing, setActivityClearing] = useState(false);
+  const [activityCaptureBusy, setActivityCaptureBusy] = useState(false);
+  const [activeView, setActiveView] = useState<AppView>("overview");
   const [providerDialogOpen, setProviderDialogOpen] = useState(false);
   const [providerKind, setProviderKind] = useState<ProviderKind>("openai-codex");
   const [providerName, setProviderName] = useState("");
@@ -719,28 +765,48 @@ function App(): ReactNode {
     }
   }
 
+  async function setActivityCapture(enabled: boolean): Promise<void> {
+    setActivityCaptureBusy(true);
+    try {
+      setState(await window.lane.setActivityCapture(enabled));
+    } catch (error) {
+      setLoadError(getErrorMessage(error));
+    } finally {
+      setActivityCaptureBusy(false);
+    }
+  }
+
   const recentActivity = activityItems(state.logs);
   const activityPanel = (
-    <section aria-label="Activity">
+    <section aria-label="Activity" className="pb-6">
+      <div className="flex items-center gap-3 pb-3">
+        <h1 className="lane-section-title">Activity</h1>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="lane-label text-muted-foreground">Capture bodies</span>
+          <Switch
+            aria-label="Capture raw request and response bodies"
+            checked={state.activityCaptureEnabled}
+            disabled={activityCaptureBusy}
+            onCheckedChange={(checked) => void setActivityCapture(checked)}
+          />
+          <Button
+            aria-label="Clear activity"
+            disabled={activityClearing || recentActivity.length === 0}
+            onClick={() => void clearActivity()}
+            size="xs"
+            variant="ghost"
+          >
+            {activityClearing ? "Clearing…" : "Clear"}
+          </Button>
+        </div>
+      </div>
       {recentActivity.length === 0 ? (
-        <p className="lane-meta px-4 py-5 text-center text-muted-foreground">
+        <p className="lane-meta rounded-lg bg-muted/35 px-4 py-10 text-center text-muted-foreground">
           No recent activity
         </p>
       ) : (
-        <>
-          <div className="flex justify-end px-2 pt-1.5">
-            <Button
-              aria-label="Clear activity"
-              disabled={activityClearing}
-              onClick={() => void clearActivity()}
-              size="xs"
-              variant="ghost"
-            >
-              {activityClearing ? "Clearing…" : "Clear"}
-            </Button>
-          </div>
-          <ol className="max-h-80 divide-y overflow-y-auto px-3">
-            {recentActivity.map((entry) => {
+        <ol className="divide-y rounded-lg bg-muted/20 px-3">
+          {recentActivity.map((entry) => {
               const trace = entry.trace;
               if (!trace) {
                 return (
@@ -778,8 +844,8 @@ function App(): ReactNode {
                 : running
                   ? "Running"
                   : String(trace.status ?? "Done");
-              return (
-                <li className="py-2.5" key={entry.key}>
+              const summary = (
+                <>
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="lane-label w-8 shrink-0 font-semibold text-muted-foreground">
                       {trace.method}
@@ -795,6 +861,9 @@ function App(): ReactNode {
                     >
                       {statusLabel}
                     </span>
+                    {entry.capture && (
+                      <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-panel-open:rotate-180" />
+                    )}
                   </div>
                   <div className="mt-1 flex items-center gap-2 pl-10 text-[0.6875rem] text-muted-foreground">
                     {traceDetails(trace).length > 0 && (
@@ -809,11 +878,26 @@ function App(): ReactNode {
                       })}
                     </time>
                   </div>
+                </>
+              );
+              return (
+                <li className="py-2.5" key={entry.key}>
+                  {entry.capture ? (
+                    <Collapsible>
+                      <CollapsibleTrigger className="group w-full cursor-default text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
+                        {summary}
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="pt-2 pl-10 pr-1 pb-1">
+                        <CaptureDetails capture={entry.capture} />
+                      </CollapsibleContent>
+                    </Collapsible>
+                  ) : (
+                    summary
+                  )}
                 </li>
               );
-            })}
-          </ol>
-        </>
+          })}
+        </ol>
       )}
     </section>
   );
@@ -910,26 +994,37 @@ function App(): ReactNode {
       <div className={cn("app-frame", window.lane.platform === "darwin" && "is-macos")}>
         <header className="window-chrome">
           <div className="window-navigation window-navigation-utilities">
-            <UtilityPanels
-              activityContent={activityPanel}
+            <UtilityControls
+              activityOpen={activeView === "activity"}
+              onActivityToggle={() =>
+                setActiveView((view) => view === "activity" ? "overview" : "activity")
+              }
               settingsContent={settingsPanel}
             />
           </div>
         </header>
 
         <div className="app-content bg-background">
-          <main className="h-full overflow-y-auto bg-background">
-            <div className="lane-page mx-auto w-full max-w-2xl">
-              {window.lane.platform !== "darwin" && (
-                <div className="flex items-center justify-end gap-2 pb-4">
-                  <UtilityPanels
-                    activityContent={activityPanel}
-                    settingsContent={settingsPanel}
-                  />
-                </div>
-              )}
+          <ScrollArea className="h-full">
+            <main className="min-h-full bg-background">
+              <div className="lane-page mx-auto w-full max-w-2xl">
+                {window.lane.platform !== "darwin" && (
+                  <div className="flex items-center justify-end gap-2 pb-4">
+                    <UtilityControls
+                      activityOpen={activeView === "activity"}
+                      onActivityToggle={() =>
+                        setActiveView((view) => view === "activity" ? "overview" : "activity")
+                      }
+                      settingsContent={settingsPanel}
+                    />
+                  </div>
+                )}
 
-            <section className="scroll-mt-6 pb-2" id="gateway">
+                {activeView === "activity" ? (
+                  activityPanel
+                ) : (
+                  <>
+                    <section className="scroll-mt-6 pb-2" id="gateway">
               <div className="lane-section-heading">
                 <h1 className="lane-section-title">Gateway</h1>
                 <div className="flex items-center gap-2">
@@ -974,13 +1069,9 @@ function App(): ReactNode {
                         <Braces data-icon="inline-start" />
                         Endpoints
                       </DialogTrigger>
-                      <DialogContent>
+                      <DialogContent className="gap-4">
                         <DialogHeader>
                           <DialogTitle>API endpoints</DialogTitle>
-                          <DialogDescription>
-                            OpenAI-compatible clients use the base URL. Every request
-                            requires the Lane client key as a Bearer token.
-                          </DialogDescription>
                         </DialogHeader>
                         <div className="min-w-0 divide-y overflow-hidden">
                           {LANE_API_ROUTES.map((route) => {
@@ -1533,9 +1624,12 @@ function App(): ReactNode {
                   </Select>
                 </div>
               )}
-            </section>
-            </div>
-          </main>
+                    </section>
+                  </>
+                )}
+              </div>
+            </main>
+          </ScrollArea>
         </div>
 
         {updateState.status !== "idle" && (

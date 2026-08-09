@@ -102,8 +102,8 @@ interactive acceptance test.
 ### Logs and errors
 
 Logs and client-facing provider errors pass through redaction for bearer values,
-common API-key shapes, JWTs, and token/key fields. Lane does not log request
-bodies or headers. Port conflicts, token refresh failures, and provider failures
+common API-key shapes, JWTs, and token/key fields. Metadata logging does not
+include request bodies or headers. Port conflicts, token refresh failures, and provider failures
 remain distinguishable without including secret material. Lane retries a
 short-lived port conflict on the configured port. If the conflict persists, the
 desktop UI can move to an available port only after confirmation; Lane does not
@@ -112,16 +112,28 @@ terminate the unknown process holding the old port.
 Activity is persisted only after redaction. Gateway traces contain a random
 request ID, method, route, streaming mode, resolved model/provider, HTTP status,
 latency, token or image counts, cancellation state, and a bounded error code.
-They exclude prompts, model output, request headers and bodies, the Lane client
+By default they exclude prompts, model output, request headers and bodies, the Lane client
 key, provider API keys, and OAuth tokens. Files use mode `0600` inside a mode `0700` directory where POSIX
 permissions are available. Daily files rotate at 1 MiB; files older than 7 days
 are removed; the directory is capped at 5 MiB by deleting the oldest files
 first. Corrupt or partial lines are ignored during recovery. A persistence
 failure degrades to in-memory activity and does not stop the gateway.
 
+The user can explicitly enable raw body capture for debugging. Capture records
+the downstream request and response bodies exactly as Lane receives and emits
+them; it does not redact, parse, or rewrite their content. Bodies can therefore
+contain prompts, outputs, or application secrets. Authorization and other HTTP
+headers are never added to the capture structure, so Lane and upstream
+credentials are not captured merely because they authenticate a request. Raw
+captures are held only in memory, disappear on restart or Clear, and are never
+written to the activity JSONL files. Each side is capped at 1 MiB; the UI states
+the captured and total byte counts when the tail is omitted. The session keeps
+at most 32 MiB of raw bodies and evicts the oldest bodies first while retaining
+their metadata traces.
+
 ### Request handling
 
-Bodies are limited to 2 MiB. Image-provider responses are capped at 128 MiB
+Bodies are limited to 30 MiB. Image-provider responses are capped at 128 MiB
 before they are returned as base64 JSON. Closing or aborting a downstream
 request aborts the pi-ai upstream request. Lane does not execute model-requested
 tools. Automated tests use a local mock provider and do not send paid requests.

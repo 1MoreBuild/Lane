@@ -7,7 +7,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GatewayServer } from "../src/main/gateway.ts";
+import { GatewayServer, MAX_CAPTURE_BYTES } from "../src/main/gateway.ts";
 import { buildImageModels, PiAiImageRuntime } from "../src/main/image-runtime.ts";
 import { LaneLogger } from "../src/main/logger.ts";
 import { PiAiRuntime } from "../src/main/pi-runtime.ts";
@@ -166,6 +166,108 @@ describe("gateway with a local pi-ai mock provider", () => {
     expect(JSON.stringify(logger.list())).not.toContain(secretPrompt);
     expect(JSON.stringify(logger.list())).not.toContain("hello from mock");
     expect(JSON.stringify(logger.list())).not.toContain(clientKey);
+  });
+
+  it("captures exact request and response bodies only when capture is enabled", async () => {
+    const { url, logger, gateway } = await setup();
+    expect(gateway.isCaptureEnabled()).toBe(false);
+    gateway.setCaptureEnabled(true);
+    const requestBody = '{ "model": "mock/mock-model", "input": "sk-visible-in-raw-capture" }';
+    const response = await fetch(`${url}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: requestBody,
+    });
+    const responseBody = await response.text();
+    expect(response.status).toBe(200);
+
+    const completed = logger
+      .list()
+      .find((entry) => entry.trace?.path === "/v1/responses" && entry.trace.phase === "completed");
+    expect(completed?.capture?.request).toMatchObject({
+      body: requestBody,
+      contentType: "application/json",
+      capturedBytes: Buffer.byteLength(requestBody),
+      totalBytes: Buffer.byteLength(requestBody),
+      truncated: false,
+    });
+    expect(completed?.capture?.response?.body).toBe(responseBody);
+    expect(JSON.stringify(completed?.capture)).not.toContain(clientKey);
+  });
+
+  it("marks capacity truncation without rewriting the captured prefix", async () => {
+    const { url, logger, gateway } = await setup();
+    gateway.setCaptureEnabled(true);
+    const requestBody = "x".repeat(MAX_CAPTURE_BYTES + 257);
+    const response = await fetch(`${url}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: requestBody,
+    });
+    expect(response.status).toBe(400);
+    await response.text();
+
+    const capture = logger
+      .list()
+      .find((entry) => entry.trace?.path === "/v1/responses" && entry.trace.phase === "completed")
+      ?.capture?.request;
+    expect(capture).toMatchObject({
+      body: requestBody.slice(0, MAX_CAPTURE_BYTES),
+      capturedBytes: MAX_CAPTURE_BYTES,
+      totalBytes: Buffer.byteLength(requestBody),
+      truncated: true,
+    });
+  });
+
+  it("does not replace a UTF-8 character split by the capture boundary", async () => {
+    const { url, logger, gateway } = await setup();
+    gateway.setCaptureEnabled(true);
+    const requestBody = "你".repeat(Math.ceil(MAX_CAPTURE_BYTES / 3) + 10);
+    const response = await fetch(`${url}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: requestBody,
+    });
+    expect(response.status).toBe(400);
+    await response.text();
+
+    const capture = logger
+      .list()
+      .find((entry) => entry.trace?.path === "/v1/responses" && entry.trace.phase === "completed")
+      ?.capture?.request;
+    expect(capture?.truncated).toBe(true);
+    expect(capture?.body).not.toContain("�");
+    expect(Buffer.byteLength(capture?.body ?? "")).toBe(capture?.capturedBytes);
+    expect(requestBody.startsWith(capture?.body ?? "missing")).toBe(true);
+  });
+
+  it("captures the exact downstream SSE stream", async () => {
+    const { url, logger, gateway } = await setup();
+    gateway.setCaptureEnabled(true);
+    const requestBody = JSON.stringify({
+      model: "mock/mock-model",
+      input: "stream capture",
+      stream: true,
+    });
+    const response = await fetch(`${url}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: requestBody,
+    });
+    const responseBody = await response.text();
+    expect(response.status).toBe(200);
+
+    const capture = logger
+      .list()
+      .find((entry) => entry.trace?.path === "/v1/responses" && entry.trace.phase === "completed")
+      ?.capture;
+    expect(capture?.request?.body).toBe(requestBody);
+    expect(capture?.response).toMatchObject({
+      body: responseBody,
+      contentType: "text/event-stream; charset=utf-8",
+      truncated: false,
+    });
+    expect(responseBody).toContain("event: response.completed");
   });
 
   it("serves models and both non-streaming protocols", async () => {

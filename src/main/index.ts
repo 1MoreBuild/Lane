@@ -419,6 +419,10 @@ async function startCliControl(appCore: AppCore): Promise<void> {
 function registerIpc(appCore: AppCore, installer: CliInstaller): void {
   ipcMain.handle("lane:get-state", () => appCore.getState());
   ipcMain.handle("lane:clear-activity", () => stateAfter(() => appCore.clearActivity()));
+  ipcMain.handle("lane:set-activity-capture", (_event, enabled: unknown) => {
+    if (typeof enabled !== "boolean") throw new Error("Capture state must be a boolean");
+    return stateAfter(() => appCore.setActivityCapture(enabled));
+  });
   ipcMain.handle("lane:get-update-state", () => updateState);
   ipcMain.handle("lane:download-update", async () => {
     await autoUpdate?.downloadAvailable();
