@@ -1,6 +1,6 @@
 {
   "name": "lane-local-ai-gateway",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "A local, multi-provider AI gateway for desktop apps.",
   "author": "Haitian",
