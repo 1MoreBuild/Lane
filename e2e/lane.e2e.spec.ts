@@ -492,13 +492,15 @@ test.describe("Lane packaged product journeys", () => {
       .first()
       .click();
     await expect(activity.getByRole("tab", { name: "Request" })).toBeVisible();
-    await expect(activity.getByLabel("Captured body")).toContainText('"input": "hello"');
+    const requestPanel = activity.getByRole("tabpanel", { name: "Request" });
+    await expect(requestPanel.getByLabel("Captured body")).toContainText('"input": "hello"');
     await activity.getByRole("tab", { name: "Response" }).click();
+    const responsePanel = activity.getByRole("tabpanel", { name: "Response" });
     await expect(activity.getByText(/response events/)).toBeVisible();
     await expect(activity.getByRole("button", { name: /Generated text/ })).toBeVisible();
-    await expect(activity.getByLabel("Captured body")).toContainText("hello from mock");
+    await expect(responsePanel.getByLabel("Captured body")).toContainText("hello from mock");
     await activity.getByRole("button", { name: "Raw" }).click();
-    await expect(activity.getByLabel("Captured body")).toContainText("hello from mock");
+    await expect(responsePanel.getByLabel("Captured body")).toContainText("hello from mock");
     await activity.getByRole("button", { name: "Clear activity" }).click();
     await expect(activity.getByText("No recent activity", { exact: true })).toBeVisible();
   });
