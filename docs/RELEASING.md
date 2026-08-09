@@ -35,7 +35,8 @@ rollback path.
    versioning policy, support address, privacy statement, and release owner.
 2. Protect `main` and require the CI workflow for pull requests.
 3. Add the required GitHub Actions secrets for Developer ID signing and Apple
-   notarization. The stable release workflow refuses an unsigned build.
+   notarization. Use an App Store Connect API key rather than an Apple Account
+   password. The stable release workflow refuses an unsigned build.
 4. Keep signing credentials in the release environment's secret store. Never
    commit certificates, private keys, API keys, or notarization credentials.
 
@@ -88,11 +89,40 @@ for signature/notarization checks and installed-product E2E on both Apple
 Silicon and a real Intel runner. Prerelease tags such as
 `v0.1.1-test.1` remain unsigned, manual-install feedback builds.
 
+Before creating a stable tag, run the `Release` workflow manually from `main`.
+The manual run uses the same signing, notarization, stapling, verification, and
+two-architecture product E2E path, but it does not create a GitHub Release. This
+proves the hosted-runner credentials and release artifacts without publishing a
+version that cannot be replaced.
+
+The stable workflow recalculates the DMG entries in `latest-mac.yml` after Apple
+staples the notarization tickets. This ordering matters because stapling changes
+the DMG bytes; metadata generated before stapling contains stale checksums.
+
+### GitHub release secrets
+
+The stable workflow requires these repository secrets:
+
+| Secret | Value |
+| --- | --- |
+| `MAC_CSC_LINK` | Base64-encoded `.p12` export of the Developer ID Application certificate and private key |
+| `MAC_CSC_KEY_PASSWORD` | Password used when exporting the `.p12` |
+| `APPLE_API_KEY_P8_BASE64` | Base64-encoded App Store Connect API key `.p8` file |
+| `APPLE_API_KEY_ID` | App Store Connect API key ID |
+| `APPLE_API_ISSUER` | App Store Connect API issuer ID |
+| `APPLE_TEAM_ID` | Apple Developer team ID used to verify the final signature |
+
+The workflow writes the API key to a permission-restricted temporary file only
+for notarization, removes it when the build step exits, and never uploads the
+key or signing certificate as an artifact. The public release job receives only
+already verified DMG, ZIP, update metadata, blockmaps, and checksums.
+
 Verify a release candidate with:
 
 ```bash
 codesign --verify --deep --strict --verbose=2 Lane.app
 spctl --assess --type execute --verbose=4 Lane.app
+xcrun stapler validate Lane.app
 xcrun stapler validate Lane.dmg
 ```
 

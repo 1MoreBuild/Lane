@@ -532,6 +532,7 @@ export class AppCore {
       launchAtLogin: config.launchAtLogin,
       visibility: { ...config.visibility },
       cliEnabled: config.cli.enabled,
+      activityCaptureEnabled: this.gateway.isCaptureEnabled(),
       clientKey,
       logs: this.logger.list(),
     };
@@ -540,6 +541,12 @@ export class AppCore {
   async clearActivity(): Promise<LaneState> {
     this.requireInitialized();
     await this.logger.clear();
+    return await this.getState();
+  }
+
+  async setActivityCapture(enabled: boolean): Promise<LaneState> {
+    this.requireInitialized();
+    this.gateway.setCaptureEnabled(enabled);
     return await this.getState();
   }
 

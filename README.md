@@ -39,6 +39,8 @@ agent loop, or executes tool calls.
 - Standard and Fast response modes for OpenAI and ChatGPT / Codex.
 - ChatGPT / Codex, OpenAI, Anthropic, OpenRouter, and custom endpoints.
 - Credentials stay in Keychain-backed secure storage.
+- Inspect request traces as formatted JSON and response events, with the exact
+  raw bodies available through opt-in, session-only capture.
 - The gateway listens only on `127.0.0.1` and requires a separate Lane key.
 - Desktop, menu bar, CLI, and automatic Transly connection.
 - Signed releases update through GitHub Releases after user confirmation.

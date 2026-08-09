@@ -229,6 +229,21 @@
     line-height: 1rem;
   }
 
+  .lane-code-viewer pre {
+    margin: 0;
+    padding: 0.625rem 0.75rem;
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1.05rem;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .lane-code-viewer code {
+    font-family: inherit;
+  }
+
 }
 
 @layer base {

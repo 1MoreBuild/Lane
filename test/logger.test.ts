@@ -168,6 +168,72 @@ describe("persistent activity log", () => {
     expect(persisted).not.toContain("Authorization");
   });
 
+  it("keeps raw captures in memory for the current session and never persists them", async () => {
+    const directory = await tempPath("capture-logs");
+    const logger = new LaneLogger({ directory, now: () => 42 });
+    await logger.initialize();
+    logger.trace(
+      "info",
+      "POST /v1/responses",
+      {
+        kind: "gateway",
+        requestId: "request-capture",
+        phase: "completed",
+        method: "POST",
+        path: "/v1/responses",
+        status: 200,
+      },
+      {
+        request: {
+          body: '{"input":"sk-exact-raw-value"}',
+          contentType: "application/json",
+          capturedBytes: 30,
+          totalBytes: 30,
+          truncated: false,
+        },
+      },
+    );
+    await logger.flush();
+
+    expect(logger.list()[0]?.capture?.request?.body).toBe(
+      '{"input":"sk-exact-raw-value"}',
+    );
+    const persisted = await readFile(join(directory, (await readdir(directory))[0]!), "utf8");
+    expect(persisted).not.toContain("sk-exact-raw-value");
+    expect(persisted).not.toContain('"capture"');
+
+    const restored = new LaneLogger({ directory, now: () => 43 });
+    await restored.initialize();
+    expect(restored.list()[0]?.capture).toBeUndefined();
+  });
+
+  it("drops the oldest raw bodies when the session capture budget is full", async () => {
+    const logger = new LaneLogger({ maxCaptureBytes: 10 });
+    await logger.initialize();
+    const trace = (requestId: string) => ({
+      kind: "gateway" as const,
+      requestId,
+      phase: "completed" as const,
+      method: "POST",
+      path: "/v1/responses",
+      status: 200,
+    });
+    const capture = (body: string) => ({
+      request: {
+        body,
+        capturedBytes: Buffer.byteLength(body),
+        totalBytes: Buffer.byteLength(body),
+        truncated: false,
+      },
+    });
+
+    logger.trace("info", "first", trace("first"), capture("123456"));
+    logger.trace("info", "second", trace("second"), capture("abcdef"));
+
+    expect(logger.list()[0]?.capture).toBeUndefined();
+    expect(logger.list()[1]?.capture?.request?.body).toBe("abcdef");
+  });
+
   it("clears memory and persisted history before accepting new entries", async () => {
     const directory = await tempPath("clear-logs");
     let timestamp = 1;

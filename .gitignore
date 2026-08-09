@@ -13,4 +13,6 @@ test-results/
 *.key
 *.mobileprovision
 *.p12
+*.p8
+*.certSigningRequest
 *.pem
