@@ -58,7 +58,7 @@
     "@playwright/test": "1.62.1",
     "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "24.13.3",
+    "@types/node": "26.1.2",
     "@types/react": "^19.2.8",
     "@types/react-dom": "^19.2.3",
     "class-variance-authority": "^0.7.1",
