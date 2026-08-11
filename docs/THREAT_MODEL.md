@@ -35,6 +35,13 @@ disk. Public JSON settings contain no secrets. The renderer preload exposes
 provider actions and public status, not credential reads. Upstream secrets are
 never written into HTTP responses.
 
+macOS development builds use a separate `safeStorage` identity from public
+builds. A signed release does not read Keychain material left by an older
+ad-hoc build, because doing so produces a misleading system password prompt.
+Public settings survive that boundary, while providers must be reconnected
+once. If secure storage is locked or access is denied, Lane opens without
+provider credentials and shows recovery guidance instead of terminating.
+
 Packaged E2E runs use an isolated AES-GCM backend so unsigned automation never
 prompts for or opens a user's Keychain. That backend is accepted only when the
 test profile resolves inside the operating system temporary directory and a

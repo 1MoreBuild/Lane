@@ -113,8 +113,8 @@ jobs:
           path: |
             release/Lane-*-mac-*.dmg
             release/Lane-*-mac-*.zip
+            release/Lane-*-mac-*.zip.blockmap
             release/latest-mac.yml
-            release/*.blockmap
             release/SHA256SUMS
           if-no-files-found: error
 
@@ -169,8 +169,8 @@ jobs:
           files=(
             release/Lane-*-mac-*.dmg
             release/Lane-*-mac-*.zip
+            release/Lane-*-mac-*.zip.blockmap
             release/latest-mac.yml
-            release/*.blockmap
             release/SHA256SUMS
           )
           gh release create "$GITHUB_REF_NAME" "${files[@]}" \

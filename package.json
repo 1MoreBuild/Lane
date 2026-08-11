@@ -1,6 +1,6 @@
 {
   "name": "lane-local-ai-gateway",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "A local, multi-provider AI gateway for desktop apps.",
   "author": "Haitian",
@@ -24,7 +24,8 @@
     "build:release": "cross-env LANE_RELEASE_BUILD=1 npm run build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "npm run test:contracts",
+    "test:contracts": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
     "e2e:dmg:mac": "node scripts/e2e-dmg.mjs",
