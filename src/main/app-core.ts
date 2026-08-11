@@ -63,6 +63,7 @@ export interface AppCoreOptions {
   setLaunchAtLogin?: (enabled: boolean) => void;
   setDockIconVisible?: (enabled: boolean) => void | Promise<void>;
   setMenuBarIconVisible?: (enabled: boolean) => void | Promise<void>;
+  credentialStorageNotice?: string;
 }
 
 export class AppCore {
@@ -80,6 +81,8 @@ export class AppCore {
   private clientKey: string | undefined;
   private effectiveDefaultModel: string | undefined;
   private effectiveDefaultImageModel: string | undefined;
+  private readonly credentialStorageNotice: string | undefined;
+  private credentialStorageError: string | undefined;
 
   constructor(options: AppCoreOptions) {
     this.configStore = options.configStore;
@@ -91,15 +94,23 @@ export class AppCore {
     this.setLoginItem = options.setLaunchAtLogin ?? (() => {});
     this.setDockIcon = options.setDockIconVisible ?? (() => {});
     this.setMenuBarIcon = options.setMenuBarIconVisible ?? (() => {});
+    this.credentialStorageNotice = options.credentialStorageNotice;
   }
 
   async initialize(): Promise<void> {
     await this.logger.initialize();
     this.config = await this.configStore.load();
-    this.clientKey = await this.secretStore.get(CLIENT_KEY_SECRET);
-    if (!this.clientKey) {
+    try {
+      this.clientKey = await this.secretStore.get(CLIENT_KEY_SECRET);
+      if (!this.clientKey) {
+        this.clientKey = randomBytes(32).toString("base64url");
+        await this.secretStore.set(CLIENT_KEY_SECRET, this.clientKey);
+      }
+    } catch (error) {
       this.clientKey = randomBytes(32).toString("base64url");
-      await this.secretStore.set(CLIENT_KEY_SECRET, this.clientKey);
+      this.credentialStorageError =
+        "Lane could not access macOS Keychain. Unlock the login keychain, allow Lane, then restart the app.";
+      this.logger.error(`${this.credentialStorageError} ${redact(error)}`);
     }
     this.rebuildRuntime();
     if (this.config.launchAtLogin) this.setLoginItem(true);
@@ -122,6 +133,12 @@ export class AppCore {
 
   private rebuildRuntime(): void {
     if (!this.config) return;
+    if (this.credentialStorageError) {
+      this.effectiveDefaultModel = undefined;
+      this.effectiveDefaultImageModel = undefined;
+      this.runtime.set(new EmptyRuntime());
+      return;
+    }
     const models = buildModels(this.config.providers, this.credentials as CredentialStore);
     this.effectiveDefaultModel =
       this.config.defaultModel ??
@@ -485,6 +502,17 @@ export class AppCore {
   }
 
   private async providerStatuses(config: LaneConfig): Promise<ProviderStatus[]> {
+    if (this.credentialStorageError) {
+      const error = this.credentialStorageError;
+      return config.providers.map((provider) => ({
+        id: provider.id,
+        kind: provider.kind,
+        name: provider.name,
+        connected: false,
+        models: [...provider.models],
+        error,
+      }));
+    }
     return await Promise.all(
       config.providers.map(async (provider) => {
         try {
@@ -519,6 +547,15 @@ export class AppCore {
         endpoint: this.gateway.getEndpoint(config.gateway.port),
         port: config.gateway.port,
         ...(this.gateway.lastError ? { error: this.gateway.lastError } : {}),
+      },
+      credentialStorage: {
+        available: this.credentialStorageError === undefined,
+        ...(this.credentialStorageError
+          ? { error: this.credentialStorageError }
+          : {}),
+        ...(!this.credentialStorageError && this.credentialStorageNotice
+          ? { notice: this.credentialStorageNotice }
+          : {}),
       },
       providers: await this.providerStatuses(config),
       models: await this.runtime.listModels(),

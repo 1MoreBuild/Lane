@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -30,6 +30,7 @@ import {
   LANE_API_ROUTES,
 } from "../shared/api-endpoints.ts";
 import { AppCore } from "./app-core.ts";
+import { installLaneApplicationMenu } from "./application-menu.ts";
 import { LaneAutoUpdate } from "./auto-update.ts";
 import { GatewayStartError } from "./gateway.ts";
 import {
@@ -52,6 +53,10 @@ import { LaneLogger, redact } from "./logger.ts";
 import { runLaneNativeHost } from "./native-messaging.ts";
 import { NativeMessagingInstaller } from "./native-messaging-install.ts";
 import { OAuthCoordinator } from "./oauth-coordinator.ts";
+import {
+  readLegacyKeychainRecord,
+  resolveSafeStorageProfile,
+} from "./safe-storage-profile.ts";
 import { SecretStore } from "./secret-store.ts";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -66,6 +71,23 @@ if (e2eUserData) {
     throw new Error("Lane E2E user data must be an existing temporary directory");
   }
   app.setPath("userData", resolvedUserData);
+}
+const originalUserData = app.getPath("userData");
+const safeStorageProfile = resolveSafeStorageProfile({
+  releaseBuild,
+  packaged: app.isPackaged,
+  e2e: e2eMode,
+  platform: process.platform,
+  legacy:
+    releaseBuild && app.isPackaged && !e2eMode
+      ? readLegacyKeychainRecord()
+      : { found: false },
+  newProfileExists: existsSync(join(originalUserData, "secrets-v2.json")),
+});
+if (safeStorageProfile.appName) {
+  app.setName(safeStorageProfile.appName);
+  // Changing the Keychain identity must not move public settings or logs.
+  app.setPath("userData", originalUserData);
 }
 process.env.PI_OAUTH_CALLBACK_HOST = "127.0.0.1";
 
@@ -140,6 +162,90 @@ function showMainWindow(): void {
   menubarWindow?.hide();
   mainWindow?.show();
   mainWindow?.focus();
+}
+
+function openSettings(): void {
+  showMainWindow();
+  mainWindow?.webContents.send("lane:open-settings");
+}
+
+async function checkForUpdatesFromMenu(): Promise<void> {
+  const updater = autoUpdate;
+  if (!updater) {
+    await dialog.showMessageBox({
+      type: "info",
+      message: "Updates are unavailable in this build.",
+      detail: "Install a signed Lane release to check for updates.",
+      buttons: ["OK"],
+    });
+    return;
+  }
+
+  const result = await updater.checkNow();
+  if (result.status === "up-to-date") {
+    await dialog.showMessageBox({
+      type: "info",
+      message: "Lane is up to date.",
+      detail: `You’re running Lane ${app.getVersion()}.`,
+      buttons: ["OK"],
+    });
+    return;
+  }
+  if (result.status === "error") {
+    await dialog.showMessageBox({
+      type: "error",
+      message: "Lane couldn’t check for updates.",
+      detail: "Check your internet connection and try again.",
+      buttons: ["OK"],
+    });
+    return;
+  }
+  if (result.status === "unavailable") {
+    await dialog.showMessageBox({
+      type: "info",
+      message: "Updates are unavailable in this build.",
+      detail: "Install a signed Lane release to check for updates.",
+      buttons: ["OK"],
+    });
+    return;
+  }
+  if (result.status === "busy") {
+    const detail =
+      updateState.status === "downloading"
+        ? `Lane ${updateState.version} is downloading (${Math.round(updateState.percent)}%).`
+        : "Lane is already checking for updates.";
+    await dialog.showMessageBox({
+      type: "info",
+      message: "An update task is already in progress.",
+      detail,
+      buttons: ["OK"],
+    });
+    return;
+  }
+
+  const choice = await dialog.showMessageBox({
+    type: "info",
+    message: `Lane ${result.version} is available.`,
+    detail: "Download it now? Lane will relaunch after the update is ready.",
+    buttons: ["Download Update", "Not Now"],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (choice.response === 0) await updater.downloadAvailable();
+}
+
+function installApplicationMenu(): void {
+  if (process.platform !== "darwin") return;
+  app.setAboutPanelOptions({
+    applicationName: "Lane",
+    applicationVersion: app.getVersion(),
+    version: "",
+  });
+  installLaneApplicationMenu({
+    showAbout: () => app.showAboutPanel(),
+    openSettings,
+    checkForUpdates: checkForUpdatesFromMenu,
+  });
 }
 
 function lockRendererNavigation(window: BrowserWindow): void {
@@ -533,10 +639,19 @@ function refreshTray(state?: LaneState): void {
 async function setDockIconVisible(visible: boolean): Promise<void> {
   const dock = app.dock;
   if (process.platform === "darwin" && dock) {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    const preserveFocus = focusedWindow?.isVisible() === true;
     if (visible) {
       await dock.show();
     } else {
       dock.hide();
+    }
+    if (preserveFocus && focusedWindow && !focusedWindow.isDestroyed()) {
+      // Changing Dock visibility can resign the app on macOS. Restore only the
+      // Lane window that was active before this user-initiated change.
+      await new Promise<void>((resolveFocus) => setImmediate(resolveFocus));
+      app.focus({ steal: true });
+      focusedWindow.focus();
     }
     return;
   }
@@ -737,13 +852,19 @@ async function boot(): Promise<void> {
   const secretBackend = e2eMode
     ? new E2ESecretBackend(process.env.LANE_E2E_SECRET_KEY ?? "")
     : new ElectronSecretBackend();
-  const secretStore = new SecretStore(join(userData, "secrets.json"), secretBackend);
+  const secretStore = new SecretStore(
+    join(userData, safeStorageProfile.secretsFile),
+    secretBackend,
+  );
   const credentials = new SecureCredentialStore(secretStore);
   core = new AppCore({
     configStore: new ConfigStore(join(userData, "settings.json")),
     secretStore,
     credentials,
     logger,
+    ...(safeStorageProfile.notice
+      ? { credentialStorageNotice: safeStorageProfile.notice }
+      : {}),
     setLaunchAtLogin: (enabled) =>
       app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true }),
     setDockIconVisible,
@@ -777,6 +898,7 @@ async function boot(): Promise<void> {
     mainWindow = undefined;
   });
   startAutomaticUpdates(logger);
+  installApplicationMenu();
 }
 
 function cliArguments(): string[] {

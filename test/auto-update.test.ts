@@ -238,11 +238,52 @@ describe("automatic updates", () => {
     });
     controller.start();
 
-    await controller.checkNow();
+    const result = await controller.checkNow();
 
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("network unavailable"),
     );
     expect(onStateChanged).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: "error" });
+  });
+
+  it("reports whether a manual check is current or has an update", async () => {
+    const current = new FakeUpdater();
+    current.checkForUpdates.mockImplementationOnce(async () => {
+      current.emit("update-not-available", { version: "0.1.5" });
+      return null;
+    });
+    const currentController = new LaneAutoUpdate({
+      updater: updater(current),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      onStateChanged: vi.fn(),
+      prepareToInstall: vi.fn(),
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    currentController.start();
+
+    const available = new FakeUpdater();
+    available.checkForUpdates.mockImplementationOnce(async () => {
+      available.emit("update-available", { version: "0.2.0" });
+      return null;
+    });
+    const availableController = new LaneAutoUpdate({
+      updater: updater(available),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      onStateChanged: vi.fn(),
+      prepareToInstall: vi.fn(),
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    availableController.start();
+
+    await expect(currentController.checkNow()).resolves.toEqual({
+      status: "up-to-date",
+    });
+    await expect(availableController.checkNow()).resolves.toEqual({
+      status: "available",
+      version: "0.2.0",
+    });
   });
 });

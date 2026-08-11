@@ -189,9 +189,13 @@ if (
 }
 if (
   !stableReleaseWorkflow.includes("release/latest-mac.yml") ||
-  !stableReleaseWorkflow.includes("release/Lane-*-mac-*.zip")
+  !stableReleaseWorkflow.includes("release/Lane-*-mac-*.zip") ||
+  !stableReleaseWorkflow.includes("release/Lane-*-mac-*.zip.blockmap")
 ) {
-  failures.push("stable release workflow omits macOS updater metadata or ZIP");
+  failures.push("stable release workflow omits macOS updater metadata, ZIP, or ZIP blockmap");
+}
+if (stableReleaseWorkflow.includes("release/*.blockmap")) {
+  failures.push("stable release workflow publishes unused DMG blockmaps");
 }
 if (
   !stableReleaseWorkflow.includes("bash scripts/verify-signed-macos.sh")

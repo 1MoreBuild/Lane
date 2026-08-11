@@ -13,60 +13,52 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/1MoreBuild/Lane/releases"><img src="https://img.shields.io/github/v/release/1MoreBuild/Lane?include_prereleases&style=flat-square&color=171717" alt="Latest release"></a>
+  <a href="https://github.com/1MoreBuild/Lane/releases/latest"><img src="https://img.shields.io/github/v/release/1MoreBuild/Lane?style=flat-square&color=171717" alt="Latest release"></a>
   <a href="https://github.com/1MoreBuild/Lane/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/1MoreBuild/Lane/ci.yml?branch=main&style=flat-square&label=checks" alt="Build status"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-171717?style=flat-square" alt="MIT license"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/1MoreBuild/Lane/releases"><strong>Download the macOS preview →</strong></a>
+  <a href="https://github.com/1MoreBuild/Lane/releases/latest"><strong>Download Lane for macOS →</strong></a>
 </p>
 
 <p align="center">
   <img src="./docs/assets/lane-hero.png" width="900" alt="Lane running as a private local AI gateway on macOS">
 </p>
 
-Lane is a local AI gateway for macOS. Connect ChatGPT / Codex with OAuth or add
-a provider API key, then use one OpenAI-compatible endpoint from any local
-client.
+Lane turns the AI providers you already use into one OpenAI-compatible API on
+your Mac. Sign in to ChatGPT / Codex with OAuth or add a provider API key, then
+connect any local client to Lane.
 
-Lane is a gateway, not an agent. It never adds hidden instructions, runs an
-agent loop, or executes tool calls.
+Lane is a gateway, not an agent. It does not add hidden instructions, run an
+agent loop, or execute tool calls.
 
 ## Why Lane
 
-- Chat, Responses, and image generation through one API.
-- Standard and Fast response modes for OpenAI and ChatGPT / Codex.
-- ChatGPT / Codex, OpenAI, Anthropic, OpenRouter, and custom endpoints.
-- Credentials stay in Keychain-backed secure storage.
-- Inspect request traces as formatted JSON and response events, with the exact
-  raw bodies available through opt-in, session-only capture.
-- The gateway listens only on `127.0.0.1` and requires a separate Lane key.
-- Desktop, menu bar, CLI, and automatic Transly connection.
-- Signed releases update through GitHub Releases after user confirmation.
+- One loopback API for ChatGPT / Codex, OpenAI, Anthropic, OpenRouter, and
+  custom OpenAI-compatible endpoints.
+- Responses, Chat Completions, image generation, streaming, and image input.
+- Keychain-backed provider credentials that never enter the renderer or local
+  API responses.
+- A separate Lane client key, explicit browser-origin allowlists, and a gateway
+  fixed to `127.0.0.1`.
+- Redacted persistent activity plus optional session-only request capture for
+  local debugging.
+- Desktop, menu bar, CLI, and user-confirmed automatic updates.
 
-## Download
+## Install
 
-Install the current preview with Homebrew:
+Download the current DMG from
+[GitHub Releases](https://github.com/1MoreBuild/Lane/releases/latest):
 
-```bash
-brew install --cask 1MoreBuild/tap/lane
-```
-
-Or download a DMG from
-[GitHub Releases](https://github.com/1MoreBuild/Lane/releases):
-
-| Mac | Build |
+| Mac | Download |
 | --- | --- |
-| Apple Silicon (M1 or newer) | `Lane-…-mac-arm64.dmg` |
+| Apple Silicon | `Lane-…-mac-arm64.dmg` |
 | Intel | `Lane-…-mac-x64.dmg` |
 
-Lane is currently an unsigned developer preview. Homebrew and direct downloads
-install the same build and do not bypass Gatekeeper. Follow the
-[installation guide](docs/TEST_BUILDS.md); never disable Gatekeeper globally.
-
-Unsigned previews update manually. Signed releases show an update control in
-the window; click it to download in place and restart into the new version.
+Lane's stable macOS releases are Developer ID signed, notarized by Apple, and
+tested after installation on native Apple Silicon and Intel runners. Drag Lane
+to Applications and open it normally.
 
 ## Start in three steps
 
@@ -82,13 +74,15 @@ curl http://127.0.0.1:3210/v1/models \
 ```
 
 Lane supports `/v1/responses`, `/v1/chat/completions`, and
-`/v1/images/generations`, including streaming text responses and base64 data
-URL image inputs for vision-capable models. Tool calls are returned to the
-client; Lane never executes them. Lane defaults reasoning effort to High and
-speed to Standard. A request can override either default with
-`reasoning.effort` / `reasoning_effort` and `service_tier`.
+`/v1/images/generations`. Text responses can stream, and vision-capable models
+accept base64 data URL image inputs. Tool calls are returned to the client;
+Lane never executes them.
 
-| Provider | Sign in |
+Lane defaults reasoning effort to High and speed to Standard. Requests can
+override those defaults with `reasoning.effort` / `reasoning_effort` and
+`service_tier`.
+
+| Provider | Connection |
 | --- | --- |
 | ChatGPT / Codex | Browser OAuth |
 | OpenAI | API key |
@@ -96,14 +90,14 @@ speed to Standard. A request can override either default with
 | OpenRouter | API key |
 | Custom OpenAI-compatible endpoint | Base URL and API key |
 
-ChatGPT / Codex is a community integration built on
+ChatGPT / Codex support is a community integration built on
 [`pi-ai`](https://github.com/earendil-works/pi/tree/main/packages/ai).
 Upstream scopes, endpoints, models, and subscription policy can change.
 
 ## CLI for local agents
 
 Install the `lane` command from **Settings**. Agents can inspect and control the
-gateway with stable JSON output without reading provider OAuth tokens.
+gateway through stable JSON output without reading provider OAuth tokens.
 
 ```bash
 lane status --json --no-input
@@ -119,7 +113,7 @@ Run `lane schema --json --no-input` for the complete command contract.
 
 ## Develop
 
-Requires Node.js 24 LTS and npm.
+Lane requires Node.js 24 LTS and npm.
 
 ```bash
 git clone https://github.com/1MoreBuild/Lane.git
@@ -128,16 +122,17 @@ npm install
 npm run dev
 ```
 
-```bash
-npm run check
-```
+Run `npm run check` for linting, type checking, contract tests, and packaging
+validation. Packaged-product E2E is the product baseline; see `AGENTS.md` for
+the platform commands and test policy.
 
 ## Documentation
 
+- [Changelog](CHANGELOG.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Threat model](docs/THREAT_MODEL.md)
+- [Release process](docs/RELEASING.md)
 - [Unsigned test builds](docs/TEST_BUILDS.md)
-- [Release checklist](docs/RELEASING.md)
 
 ## License
 

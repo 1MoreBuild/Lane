@@ -24,6 +24,13 @@ export interface LaneAutoUpdateOptions {
   scheduleInterval?: Schedule;
 }
 
+export type LaneUpdateCheckResult =
+  | { status: "available"; version: string }
+  | { status: "up-to-date" }
+  | { status: "busy" }
+  | { status: "unavailable" }
+  | { status: "error" };
+
 export class LaneAutoUpdate {
   private readonly updater: AppUpdater;
   private readonly logger: UpdateLogger;
@@ -108,13 +115,20 @@ export class LaneAutoUpdate {
     this.scheduleInterval(() => void this.checkNow(), CHECK_INTERVAL_MS).unref?.();
   }
 
-  async checkNow(): Promise<void> {
-    if (!this.started || this.checking || this.downloading || this.installing) return;
+  async checkNow(): Promise<LaneUpdateCheckResult> {
+    if (!this.started) return { status: "unavailable" };
+    if (this.checking || this.downloading || this.installing) return { status: "busy" };
     this.checking = true;
     try {
       await this.updater.checkForUpdates();
+      return this.availableVersion
+        ? { status: "available", version: this.availableVersion }
+        : { status: "up-to-date" };
     } catch (error) {
       this.logger.warn(`Automatic update check failed: ${String(error)}`);
+      return this.availableVersion
+        ? { status: "available", version: this.availableVersion }
+        : { status: "error" };
     } finally {
       this.checking = false;
     }

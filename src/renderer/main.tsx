@@ -474,10 +474,14 @@ function UpdateControl({
 function UtilityControls({
   activityOpen,
   onActivityToggle,
+  onSettingsOpenChange,
+  settingsOpen,
   settingsContent,
 }: {
   activityOpen: boolean;
   onActivityToggle: () => void;
+  onSettingsOpenChange: (open: boolean) => void;
+  settingsOpen: boolean;
   settingsContent: ReactNode;
 }): ReactNode {
   return (
@@ -493,7 +497,7 @@ function UtilityControls({
       >
         <Activity />
       </Button>
-      <Popover>
+      <Popover onOpenChange={onSettingsOpenChange} open={settingsOpen}>
         <PopoverTrigger
           aria-label="Open Settings"
           id="lane-settings-trigger"
@@ -521,6 +525,7 @@ function App(): ReactNode {
   const [activityClearing, setActivityClearing] = useState(false);
   const [activityCaptureBusy, setActivityCaptureBusy] = useState(false);
   const [activeView, setActiveView] = useState<AppView>("overview");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [providerDialogOpen, setProviderDialogOpen] = useState(false);
   const [providerKind, setProviderKind] = useState<ProviderKind>("openai-codex");
   const [providerName, setProviderName] = useState("");
@@ -550,6 +555,9 @@ function App(): ReactNode {
         setOAuthStatus(event.message);
       }
     });
+    const unsubscribeOpenSettings = window.lane.onOpenSettings(() => {
+      setSettingsOpen(true);
+    });
 
     window.lane.getState().then(setState).catch((error: unknown) => {
       setLoadError(getErrorMessage(error));
@@ -565,6 +573,7 @@ function App(): ReactNode {
       unsubscribeState();
       unsubscribeUpdate();
       unsubscribeOAuth();
+      unsubscribeOpenSettings();
     };
   }, []);
 
@@ -999,6 +1008,8 @@ function App(): ReactNode {
               onActivityToggle={() =>
                 setActiveView((view) => view === "activity" ? "overview" : "activity")
               }
+              onSettingsOpenChange={setSettingsOpen}
+              settingsOpen={settingsOpen}
               settingsContent={settingsPanel}
             />
           </div>
@@ -1015,6 +1026,8 @@ function App(): ReactNode {
                       onActivityToggle={() =>
                         setActiveView((view) => view === "activity" ? "overview" : "activity")
                       }
+                      onSettingsOpenChange={setSettingsOpen}
+                      settingsOpen={settingsOpen}
                       settingsContent={settingsPanel}
                     />
                   </div>
@@ -1169,6 +1182,18 @@ function App(): ReactNode {
               {(state.gateway.error || loadError) && (
                 <p className="lane-body mt-3 rounded-lg bg-destructive/10 p-3 text-destructive">
                   {state.gateway.error || loadError}
+                </p>
+              )}
+              {(state.credentialStorage.error || state.credentialStorage.notice) && (
+                <p
+                  className={cn(
+                    "lane-body mt-3 rounded-lg p-3",
+                    state.credentialStorage.error
+                      ? "bg-destructive/10 text-destructive"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {state.credentialStorage.error || state.credentialStorage.notice}
                 </p>
               )}
             </section>

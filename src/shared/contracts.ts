@@ -70,6 +70,11 @@ export interface LaneState {
     port: number;
     error?: string;
   };
+  credentialStorage: {
+    available: boolean;
+    notice?: string;
+    error?: string;
+  };
   providers: ProviderStatus[];
   models: PublicModel[];
   imageModels: PublicModel[];
@@ -174,6 +179,7 @@ export interface LaneRendererApi {
   onStateChanged(listener: (state: LaneState) => void): () => void;
   onUpdateStateChanged(listener: (state: LaneUpdateState) => void): () => void;
   onOAuthEvent(listener: (event: OAuthUiEvent) => void): () => void;
+  onOpenSettings(listener: () => void): () => void;
 }
 
 export type OAuthUiEvent =

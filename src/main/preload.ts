@@ -66,6 +66,11 @@ const api: LaneRendererApi = {
     ipcRenderer.on("lane:oauth-event", handler);
     return () => ipcRenderer.removeListener("lane:oauth-event", handler);
   },
+  onOpenSettings: (listener: () => void) => {
+    const handler = () => listener();
+    ipcRenderer.on("lane:open-settings", handler);
+    return () => ipcRenderer.removeListener("lane:open-settings", handler);
+  },
 };
 
 contextBridge.exposeInMainWorld("lane", Object.freeze(api));

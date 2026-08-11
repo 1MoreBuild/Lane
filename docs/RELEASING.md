@@ -7,8 +7,12 @@ rollback path.
 ## Current release boundary
 
 - The source repository is public under the permissive MIT license.
-- Packaged macOS product E2E runs against a local mock provider on the current
-  Mac.
+- Stable macOS releases are Developer ID signed, notarized, stapled, and
+  published as separate Apple Silicon and Intel artifacts.
+- Stable publication waits for signature and notarization verification plus
+  installed-product E2E on native Apple Silicon and Intel GitHub runners.
+- Packaged-product E2E uses a deterministic local mock provider and isolated
+  user data. It never sends a paid or subscription model request.
 - Preview macOS output has a complete ad-hoc bundle signature so Gatekeeper does
   not misreport it as damaged. It is still not Developer ID signed or notarized
   and is suitable only for explicitly trusted early testers.
@@ -26,19 +30,22 @@ rollback path.
 - ChatGPT / Codex login requires interactive acceptance with an eligible account.
   Automated tests do not claim that a real account can log in.
 - Automated tests use mock providers and never make a paid generation request.
-- Stable builds use `electron-updater` with public GitHub Releases. Unsigned
-  previews cannot auto-update. No telemetry service is included.
+- Stable builds use `electron-updater` with public GitHub Releases and install
+  only after user confirmation. Unsigned previews cannot auto-update. No
+  telemetry service is included.
 
-## Before the first public beta
+## Release invariants
 
-1. Confirm the product name, `works.earendil.lane` application identifier,
-   versioning policy, support address, privacy statement, and release owner.
+1. Keep `works.earendil.lane`, the product name, version, release notes, update
+   metadata, and downloadable artifacts consistent.
 2. Protect `main` and require the CI workflow for pull requests.
-3. Add the required GitHub Actions secrets for Developer ID signing and Apple
-   notarization. Use an App Store Connect API key rather than an Apple Account
-   password. The stable release workflow refuses an unsigned build.
-4. Keep signing credentials in the release environment's secret store. Never
-   commit certificates, private keys, API keys, or notarization credentials.
+3. Keep Developer ID and App Store Connect credentials in GitHub Actions
+   secrets. The stable workflow must refuse an unsigned build.
+4. Never commit certificates, private keys, API keys, or notarization
+   credentials.
+5. Add one `.changes` fragment for every user-visible pull request. During an
+   explicitly authorized release, curate those fragments into `CHANGELOG.md`
+   and remove the consumed files before tagging.
 
 ### Chrome Web Store integration gate
 
@@ -83,17 +90,23 @@ The stable release workflow supplies the intended identity and notarization
 credentials explicitly and sets `forceCodeSigning`.
 
 Stable version tags such as `v0.1.0` build separate Apple Silicon and Intel DMG
-and ZIP artifacts, `latest-mac.yml`, checksums, and a GitHub Release. The ZIP and
-metadata are required by the standard Squirrel.Mac update path. Publishing waits
-for signature/notarization checks and installed-product E2E on both Apple
-Silicon and a real Intel runner. Prerelease tags such as
-`v0.1.1-test.1` remain unsigned, manual-install feedback builds.
+and ZIP artifacts, ZIP blockmaps, `latest-mac.yml`, checksums, and a GitHub
+Release. The ZIP, its blockmap, and metadata support the standard Squirrel.Mac
+update path and differential downloads. DMG blockmaps are not published because
+Lane's updater never consumes them. Publishing waits for signature/notarization
+checks and installed-product E2E on both Apple Silicon and a real Intel runner.
+Prerelease tags such as `v0.1.1-test.1` remain unsigned, manual-install feedback
+builds.
 
 Before creating a stable tag, run the `Release` workflow manually from `main`.
 The manual run uses the same signing, notarization, stapling, verification, and
 two-architecture product E2E path, but it does not create a GitHub Release. This
 proves the hosted-runner credentials and release artifacts without publishing a
 version that cannot be replaced.
+
+Then review `CHANGELOG.md`, bump `package.json` and `package-lock.json` together,
+merge the release change, and create an immutable `vX.Y.Z` tag at that exact
+commit. Ordinary commits and merges must never publish a release.
 
 The stable workflow recalculates the DMG entries in `latest-mac.yml` after Apple
 staples the notarization tickets. This ordering matters because stapling changes
@@ -115,7 +128,7 @@ The stable workflow requires these repository secrets:
 The workflow writes the API key to a permission-restricted temporary file only
 for notarization, removes it when the build step exits, and never uploads the
 key or signing certificate as an artifact. The public release job receives only
-already verified DMG, ZIP, update metadata, blockmaps, and checksums.
+already verified DMG, ZIP, ZIP blockmaps, update metadata, and checksums.
 
 Verify a release candidate with:
 
@@ -175,6 +188,6 @@ Then verify:
 - a manual generation acceptance request uses a test account/budget and is never
   hidden inside automated CI.
 
-Publish a beta only after the signed artifacts pass these checks on clean target
+Publish only after the signed artifacts pass these checks on clean target
 machines. Keep the previous signed release available until the upgrade path has
 been exercised.

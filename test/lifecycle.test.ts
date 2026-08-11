@@ -26,6 +26,36 @@ const discover = async () => [
 ];
 
 describe("persistence and lifecycle", () => {
+  it("opens with an ephemeral client key when secure storage is denied", async () => {
+    const settingsPath = await tempPath("denied-settings.json");
+    const secretsPath = settingsPath.replace("settings.json", "secrets.json");
+    await writeFile(
+      secretsPath,
+      JSON.stringify({ "lane:client-key": Buffer.from("locked").toString("base64") }),
+    );
+    const backend = new TestSecretBackend();
+    const secretStore = new SecretStore(secretsPath, {
+      isAvailable: () => true,
+      encrypt: (value) => backend.encrypt(value),
+      decrypt: () => {
+        throw new Error("User denied Keychain access");
+      },
+    });
+    const app = new AppCore({
+      configStore: new ConfigStore(settingsPath),
+      secretStore,
+      credentials: new SecureCredentialStore(secretStore),
+      discover,
+    });
+
+    await expect(app.initialize()).resolves.toBeUndefined();
+    const state = await app.getState();
+    expect(state.clientKey).toHaveLength(43);
+    expect(state.credentialStorage.available).toBe(false);
+    expect(state.credentialStorage.error).toMatch(/Keychain/);
+    await app.shutdown();
+  });
+
   it("keeps raw activity capture scoped to the current app process", async () => {
     const shared = await stores();
     const first = new AppCore({ ...shared, discover });

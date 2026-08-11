@@ -10,6 +10,10 @@ import {
   LOOPBACK_HOST,
 } from "../src/main/security.ts";
 import { SecretStore } from "../src/main/secret-store.ts";
+import {
+  parseKeychainCreatedAt,
+  resolveSafeStorageProfile,
+} from "../src/main/safe-storage-profile.ts";
 import { freePort, tempPath, TestSecretBackend } from "./helpers.ts";
 
 class EchoRuntime implements ModelRuntime {
@@ -25,6 +29,61 @@ class EchoRuntime implements ModelRuntime {
 }
 
 describe("security boundaries", () => {
+  it("isolates development and legacy pre-signing Keychain identities", () => {
+    expect(
+      parseKeychainCreatedAt(
+        '"cdat"<timedate>=0x00  "20260728230859Z\\000"',
+      ),
+    ).toBe(Date.parse("2026-07-28T23:08:59Z"));
+    expect(
+      resolveSafeStorageProfile({
+        releaseBuild: false,
+        packaged: false,
+        e2e: false,
+        platform: "darwin",
+        legacy: { found: true },
+        newProfileExists: false,
+      }),
+    ).toMatchObject({
+      appName: "Lane Development",
+      secretsFile: "secrets-development.json",
+    });
+    expect(
+      resolveSafeStorageProfile({
+        releaseBuild: true,
+        packaged: true,
+        e2e: false,
+        platform: "darwin",
+        legacy: { found: true, createdAt: Date.parse("2026-07-28T23:08:59Z") },
+        newProfileExists: false,
+      }),
+    ).toMatchObject({
+      appName: "Lane",
+      secretsFile: "secrets-v2.json",
+      notice: expect.stringMatching(/Reconnect providers/),
+    });
+    expect(
+      resolveSafeStorageProfile({
+        releaseBuild: true,
+        packaged: true,
+        e2e: false,
+        platform: "darwin",
+        legacy: { found: true, createdAt: Date.parse("2026-08-10T00:00:00Z") },
+        newProfileExists: false,
+      }),
+    ).toEqual({ secretsFile: "secrets.json" });
+    expect(
+      resolveSafeStorageProfile({
+        releaseBuild: true,
+        packaged: true,
+        e2e: false,
+        platform: "darwin",
+        legacy: { found: true, createdAt: Date.parse("2026-07-28T23:08:59Z") },
+        newProfileExists: true,
+      }),
+    ).toEqual({ appName: "Lane", secretsFile: "secrets-v2.json" });
+  });
+
   it("keeps the listener host fixed to IPv4 loopback", () => {
     expect(LOOPBACK_HOST).toBe("127.0.0.1");
     expect(() => assertSafeUpstreamUrl("http://192.168.1.20:8080/v1")).toThrow(/HTTPS/);
