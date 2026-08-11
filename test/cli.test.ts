@@ -1,5 +1,10 @@
+import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { runLaneCli, type LaneCliIo } from "../src/main/cli.ts";
+import {
+  installCliOutputErrorHandlers,
+  runLaneCli,
+  type LaneCliIo,
+} from "../src/main/cli.ts";
 import type { CliControlResponse } from "../src/main/cli-control.ts";
 
 function capture(): {
@@ -34,6 +39,32 @@ const status: CliControlResponse = {
 };
 
 describe("Lane CLI", () => {
+  it("exits quietly when a caller closes the output pipe", () => {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const onBrokenPipe = vi.fn();
+    const removeHandlers = installCliOutputErrorHandlers(onBrokenPipe, [
+      stdout,
+      stderr,
+    ]);
+
+    stdout.emit("error", Object.assign(new Error("broken pipe"), { code: "EPIPE" }));
+    stderr.emit("error", Object.assign(new Error("broken pipe"), { code: "EPIPE" }));
+
+    expect(onBrokenPipe).toHaveBeenCalledOnce();
+    removeHandlers();
+  });
+
+  it("does not swallow unexpected output errors", () => {
+    const stdout = new PassThrough();
+    const removeHandlers = installCliOutputErrorHandlers(() => {}, [stdout]);
+
+    expect(() => stdout.emit("error", new Error("unexpected"))).toThrow(
+      "unexpected",
+    );
+    removeHandlers();
+  });
+
   it("prints strict JSON status for agents", async () => {
     const output = capture();
     const code = await runLaneCli(["status", "--json", "--no-input"], {

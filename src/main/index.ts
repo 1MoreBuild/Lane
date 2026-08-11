@@ -32,7 +32,11 @@ import {
 import { AppCore } from "./app-core.ts";
 import { LaneAutoUpdate } from "./auto-update.ts";
 import { GatewayStartError } from "./gateway.ts";
-import { isLaneCliInvocation, runLaneCli } from "./cli.ts";
+import {
+  installCliOutputErrorHandlers,
+  isLaneCliInvocation,
+  runLaneCli,
+} from "./cli.ts";
 import {
   getCliSocketPath,
   LaneCliControlServer,
@@ -805,6 +809,11 @@ const cliMode =
   invokedThroughLauncher ||
   isLaneCliInvocation(args);
 
+if (cliMode) {
+  if (process.platform === "darwin") app.setActivationPolicy("accessory");
+  installCliOutputErrorHandlers(() => app.exit(0));
+}
+
 if (nativeCallerOrigin) {
   app
     .whenReady()
@@ -851,6 +860,7 @@ if (nativeCallerOrigin) {
   app
     .whenReady()
     .then(async () => {
+      app.dock?.hide();
       const code = await runLaneCli(args, {
         socketPath:
           process.env.LANE_CONTROL_SOCKET || getCliSocketPath(app.getPath("userData")),
