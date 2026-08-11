@@ -191,6 +191,7 @@ async function runPackagedProcess(
   args: string[],
   input?: Buffer,
   extraEnv: NodeJS.ProcessEnv = {},
+  options: { closeStdout?: boolean } = {},
 ): Promise<ChildResult> {
   return await new Promise<ChildResult>((resolveChild, rejectChild) => {
     const child = spawn(executable, args, {
@@ -210,6 +211,7 @@ async function runPackagedProcess(
       rejectChild(new Error(`Packaged process timed out: ${executable} ${args.join(" ")}`));
     }, 15_000);
     child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
+    if (options.closeStdout) child.stdout.destroy();
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
@@ -705,6 +707,17 @@ test.describe("Lane packaged product journeys", () => {
         expect.objectContaining({ id: expect.stringMatching(/\/mock-image$/) }),
       ]),
     );
+
+    const closedOutput = await runPackagedProcess(
+      context,
+      cli.executable,
+      ["status", "--json", "--no-input"],
+      undefined,
+      cli.env,
+      { closeStdout: true },
+    );
+    expect(closedOutput.code, closedOutput.stderr).toBe(0);
+    expect(closedOutput.stderr).not.toContain("EPIPE");
   });
 
   test("serves the approved browser extension through the packaged native host", async () => {

@@ -41,6 +41,11 @@ export interface LaneCliIo {
   isTTY: boolean;
 }
 
+interface CliOutputErrorStream {
+  on(event: "error", listener: (error: NodeJS.ErrnoException) => void): unknown;
+  off(event: "error", listener: (error: NodeJS.ErrnoException) => void): unknown;
+}
+
 export interface LaneCliOptions {
   socketPath: string;
   version: string;
@@ -48,6 +53,23 @@ export interface LaneCliOptions {
   request?: typeof requestCliControl;
   readStdin?: () => Promise<string>;
   io?: LaneCliIo;
+}
+
+export function installCliOutputErrorHandlers(
+  onBrokenPipe: () => void,
+  streams: CliOutputErrorStream[] = [process.stdout, process.stderr],
+): () => void {
+  let brokenPipeHandled = false;
+  const handleError = (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EPIPE") throw error;
+    if (brokenPipeHandled) return;
+    brokenPipeHandled = true;
+    onBrokenPipe();
+  };
+  for (const stream of streams) stream.on("error", handleError);
+  return () => {
+    for (const stream of streams) stream.off("error", handleError);
+  };
 }
 
 interface ParsedCli {
