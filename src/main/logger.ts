@@ -291,18 +291,15 @@ export class LaneLogger {
   }
 
   private trimCaptures(): void {
-    let retainedBytes = 0;
-    for (let index = this.entries.length - 1; index >= 0; index -= 1) {
-      const entry = this.entries[index];
-      if (!entry?.capture) continue;
-      const captureBytes =
-        (entry.capture.request?.capturedBytes ?? 0) +
-        (entry.capture.response?.capturedBytes ?? 0);
-      if (retainedBytes + captureBytes <= this.maxCaptureBytes) {
-        retainedBytes += captureBytes;
-      } else {
-        delete entry.capture;
-      }
+    const captureBytes = (entry: LogEntry): number =>
+      (entry.capture?.request?.capturedBytes ?? 0) +
+      (entry.capture?.response?.capturedBytes ?? 0);
+    let retainedBytes = this.entries.reduce((total, entry) => total + captureBytes(entry), 0);
+    for (const entry of this.entries) {
+      if (retainedBytes <= this.maxCaptureBytes) break;
+      if (!entry.capture) continue;
+      retainedBytes -= captureBytes(entry);
+      delete entry.capture;
     }
   }
 

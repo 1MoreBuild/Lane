@@ -280,15 +280,18 @@ function parseImageRequest(value: unknown): CanonicalImageRequest {
   return result;
 }
 
-function sse(response: ServerResponse, event: string | undefined, data: unknown): void {
-  if (event) {
-    const eventLine = `event: ${event}\n`;
-    responseRecorders.get(response)?.append(eventLine);
-    response.write(eventLine);
-  }
-  const dataLine = `data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`;
-  responseRecorders.get(response)?.append(dataLine);
-  response.write(dataLine);
+function canWrite(response: ServerResponse): boolean {
+  return response.writable && !response.destroyed && !response.writableEnded;
+}
+
+function sse(response: ServerResponse, event: string | undefined, data: unknown): boolean {
+  if (!canWrite(response)) return false;
+  const payload = `${event ? `event: ${event}\n` : ""}data: ${
+    typeof data === "string" ? data : JSON.stringify(data)
+  }\n\n`;
+  response.write(payload);
+  responseRecorders.get(response)?.append(payload);
+  return true;
 }
 
 function allowOrigin(
@@ -738,8 +741,7 @@ export class GatewayServer {
             : "internal_error";
         traceStatus = mapped.status;
         if (response.headersSent) {
-          sse(response, "error", mapped.body);
-          response.end();
+          if (sse(response, "error", mapped.body)) response.end();
         } else if (!response.destroyed) {
           json(response, mapped.status, mapped.body);
         }

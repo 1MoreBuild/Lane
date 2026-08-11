@@ -234,6 +234,36 @@ describe("persistent activity log", () => {
     expect(logger.list()[1]?.capture?.request?.body).toBe("abcdef");
   });
 
+  it("evicts captures strictly from oldest to newest when sizes differ", async () => {
+    const logger = new LaneLogger({ maxCaptureBytes: 10 });
+    await logger.initialize();
+    const trace = (requestId: string) => ({
+      kind: "gateway" as const,
+      requestId,
+      phase: "completed" as const,
+      method: "POST",
+      path: "/v1/responses",
+      status: 200,
+    });
+    const capture = (body: string) => ({
+      request: {
+        body,
+        capturedBytes: Buffer.byteLength(body),
+        totalBytes: Buffer.byteLength(body),
+        truncated: false,
+      },
+    });
+
+    logger.trace("info", "oldest", trace("oldest"), capture("123"));
+    logger.trace("info", "middle", trace("middle"), capture("123456789"));
+    logger.trace("info", "newest", trace("newest"), capture("abc"));
+
+    const entries = logger.list();
+    expect(entries[0]?.capture).toBeUndefined();
+    expect(entries[1]?.capture).toBeUndefined();
+    expect(entries[2]?.capture?.request?.body).toBe("abc");
+  });
+
   it("clears memory and persisted history before accepting new entries", async () => {
     const directory = await tempPath("clear-logs");
     let timestamp = 1;
