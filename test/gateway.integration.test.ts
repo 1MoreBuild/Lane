@@ -525,7 +525,7 @@ describe("gateway with a local pi-ai mock provider", () => {
   });
 
   it("maps upstream errors and aborts the upstream request when the client disconnects", async () => {
-    const { url, upstream, logger } = await setup();
+    const { url, upstream, logger, gateway } = await setup();
     const failed = await fetch(`${url}/v1/chat/completions`, {
       method: "POST",
       headers: headers(),
@@ -542,6 +542,7 @@ describe("gateway with a local pi-ai mock provider", () => {
       logger.list().find((entry) => entry.trace?.errorCode === "provider_error")?.trace,
     ).toMatchObject({ status: 502, phase: "completed" });
 
+    gateway.setCaptureEnabled(true);
     const controller = new AbortController();
     const slow = await fetch(`${url}/v1/chat/completions`, {
       method: "POST",
@@ -567,6 +568,11 @@ describe("gateway with a local pi-ai mock provider", () => {
         errorCode: "request_cancelled",
       }),
     );
+    const cancelledCapture = logger
+      .list()
+      .find((entry) => entry.trace?.cancelled)?.capture?.response?.body;
+    expect(cancelledCapture).toBeTypeOf("string");
+    expect(cancelledCapture).not.toContain("event: error");
   }, 15_000);
 
   it("maps image errors and aborts image generation when the client disconnects", async () => {
