@@ -1001,19 +1001,21 @@ function App(): ReactNode {
   return (
     <TooltipProvider delay={200}>
       <div className={cn("app-frame", window.lane.platform === "darwin" && "is-macos")}>
-        <header className="window-chrome">
-          <div className="window-navigation window-navigation-utilities">
-            <UtilityControls
-              activityOpen={activeView === "activity"}
-              onActivityToggle={() =>
-                setActiveView((view) => view === "activity" ? "overview" : "activity")
-              }
-              onSettingsOpenChange={setSettingsOpen}
-              settingsOpen={settingsOpen}
-              settingsContent={settingsPanel}
-            />
-          </div>
-        </header>
+        {window.lane.platform === "darwin" && (
+          <header className="window-chrome">
+            <div className="window-navigation window-navigation-utilities">
+              <UtilityControls
+                activityOpen={activeView === "activity"}
+                onActivityToggle={() =>
+                  setActiveView((view) => view === "activity" ? "overview" : "activity")
+                }
+                onSettingsOpenChange={setSettingsOpen}
+                settingsOpen={settingsOpen}
+                settingsContent={settingsPanel}
+              />
+            </div>
+          </header>
+        )}
 
         <div className="app-content bg-background">
           <ScrollArea className="h-full">

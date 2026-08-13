@@ -52,6 +52,9 @@ used an installed package, and whether any real model request ran.
 - Before a release, read `docs/RELEASING.md`, inspect the active workflow, fold
   pending `.changes` fragments into `CHANGELOG.md`, and remove consumed
   fragments.
+- Keep the release pull request open until automated and human reviews have
+  finished. Inspect unresolved review threads immediately before merging; do
+  not merge, tag, or publish while an actionable P1 or P2 remains.
 - Never change the package version, create or push a tag, dispatch a release
   workflow, or publish artifacts without explicit release authorization.
 - Stable macOS artifacts must be Developer ID signed, notarized, stapled, and

@@ -12,6 +12,7 @@ import {
   type Page,
   type TestInfo,
 } from "@playwright/test";
+import type { KeyboardEvent } from "electron";
 import { startMockOpenAI, type MockOpenAI } from "../test/mock-openai.ts";
 import { freePort } from "../test/helpers.ts";
 import {
@@ -539,6 +540,67 @@ test.describe("Lane packaged product journeys", () => {
     expect(menubarPage).toBeDefined();
     await expect(menubarPage!.getByRole("button", { name: "Open Lane" })).toBeVisible();
     await expect(menubarPage!.getByRole("button", { name: "Quit Lane" })).toBeVisible();
+  });
+
+  test("opens exactly one Settings panel through the packaged platform controls", async () => {
+    const { app, page } = context.session!;
+
+    if (process.platform === "darwin") {
+      const menuLabels = await app.evaluate(({ Menu }) =>
+        Menu.getApplicationMenu()?.items[0]?.submenu?.items.map((item) => item.label) ?? [],
+      );
+      expect(menuLabels).toEqual(
+        expect.arrayContaining(["About Lane", "Settings…", "Check for Updates…", "Quit Lane"]),
+      );
+
+      await app.evaluate(({ BrowserWindow, Menu }) => {
+        const settings = Menu.getApplicationMenu()?.items[0]?.submenu?.items.find(
+          (item) => item.label === "Settings…",
+        );
+        if (!settings?.click) throw new Error("Packaged Settings menu item is unavailable");
+        settings.click(settings, BrowserWindow.getFocusedWindow(), {} as KeyboardEvent);
+      });
+    } else {
+      await page.getByRole("button", { name: "Open Settings" }).click();
+    }
+
+    await expect(page.getByText("Theme", { exact: true })).toHaveCount(1);
+    await expect(page.getByRole("switch", { name: /Show Lane in (Dock|taskbar)/ })).toHaveCount(1);
+
+    if (process.platform === "darwin") {
+      const message = await app.evaluate(async ({ BrowserWindow, Menu, dialog }) => {
+        const capture = globalThis as typeof globalThis & {
+          laneE2EUpdateMessage: string | undefined;
+        };
+        capture.laneE2EUpdateMessage = undefined;
+        const original = dialog.showMessageBox;
+        dialog.showMessageBox = (async (...args) => {
+          const options = args.at(-1);
+          if (
+            typeof options !== "object" ||
+            options === null ||
+            !("message" in options) ||
+            typeof options.message !== "string"
+          ) {
+            throw new Error("Packaged update dialog options are unavailable");
+          }
+          capture.laneE2EUpdateMessage = options.message;
+          return { response: 0, checkboxChecked: false };
+        }) as typeof dialog.showMessageBox;
+        try {
+          const update = Menu.getApplicationMenu()?.items[0]?.submenu?.items.find(
+            (item) => item.label === "Check for Updates…",
+          );
+          if (!update?.click) throw new Error("Packaged update menu item is unavailable");
+          update.click(update, BrowserWindow.getFocusedWindow(), {} as KeyboardEvent);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          return capture.laneE2EUpdateMessage;
+        } finally {
+          dialog.showMessageBox = original;
+        }
+      });
+      expect(message).toBe("Updates are unavailable in this build.");
+    }
   });
 
   test("fits the default window and changes model defaults in the UI", async (
