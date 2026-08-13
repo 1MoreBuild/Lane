@@ -46,6 +46,10 @@ rollback path.
 5. Add one `.changes` fragment for every user-visible pull request. During an
    explicitly authorized release, curate those fragments into `CHANGELOG.md`
    and remove the consumed files before tagging.
+6. Wait for pull-request review to finish before merging the release change.
+   Immediately before merge, inspect unresolved review threads and the latest
+   CI run. An actionable P1 or P2, a pending review, or a failed required check
+   blocks the merge, tag, and release.
 
 ### Chrome Web Store integration gate
 
@@ -103,6 +107,12 @@ The manual run uses the same signing, notarization, stapling, verification, and
 two-architecture product E2E path, but it does not create a GitHub Release. This
 proves the hosted-runner credentials and release artifacts without publishing a
 version that cannot be replaced.
+
+The release pull request is the final review gate. Do not merge it as soon as
+CI turns green: automated review comments can arrive after the checks. Wait for
+the review to complete, inspect its thread-level state, resolve or explicitly
+disposition every actionable finding, and rerun affected packaged E2E journeys
+before merging. Recheck the merged `main` CI before creating the immutable tag.
 
 Then review `CHANGELOG.md`, bump `package.json` and `package-lock.json` together,
 merge the release change, and create an immutable `vX.Y.Z` tag at that exact
