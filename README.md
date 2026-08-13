@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <img src="./docs/assets/lane-hero-v3.png" width="900" alt="Lane running as a private local AI gateway on macOS">
+  <img src="./docs/assets/lane-hero-v5.png" width="900" alt="Lane running as a private local AI gateway on macOS">
 </p>
 
 Lane turns the AI providers you already use into one OpenAI-compatible API on
