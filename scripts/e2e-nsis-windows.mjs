@@ -111,9 +111,9 @@ let runError;
 try {
   await access(installer);
   const installed = spawnSync(installer, ["/S", `/D=${installedDirectory}`], {
-    encoding: "utf8",
     env: environment,
-    timeout: 120_000,
+    stdio: "ignore",
+    timeout: 300_000,
     windowsHide: true,
   });
   requireSuccess(installed, "NSIS installation");
@@ -149,9 +149,9 @@ try {
   const uninstallerName = entries.find((name) => /^uninstall.*\.exe$/i.test(name));
   if (!uninstallerName) throw new Error("Installed Lane package has no NSIS uninstaller");
   const uninstalled = spawnSync(join(installedDirectory, uninstallerName), ["/S"], {
-    encoding: "utf8",
     env: environment,
-    timeout: 120_000,
+    stdio: "ignore",
+    timeout: 300_000,
     windowsHide: true,
   });
   requireSuccess(uninstalled, "NSIS uninstallation");

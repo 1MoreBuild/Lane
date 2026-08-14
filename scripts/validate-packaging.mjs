@@ -162,6 +162,9 @@ if (!pkg.scripts?.["e2e:nsis:win"]) {
 if (!nsisE2E.includes('"reg.exe"') || nsisE2E.includes('"powershell.exe"')) {
   failures.push("Windows NSIS E2E must inspect installed products without PowerShell startup");
 }
+if (!nsisE2E.includes('stdio: "ignore"') || !nsisE2E.includes("timeout: 300_000")) {
+  failures.push("Windows NSIS E2E must tolerate signed installer scanning without pipe leaks");
+}
 if (
   !windowsSignatureVerification.includes("Get-AuthenticodeSignature") ||
   !windowsSignatureVerification.includes("AZURE_SIGNING_PUBLISHER_NAME") ||
