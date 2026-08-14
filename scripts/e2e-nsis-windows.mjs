@@ -1,0 +1,183 @@
+import { spawn, spawnSync } from "node:child_process";
+import {
+  access,
+  mkdtemp,
+  open,
+  readdir,
+  realpath,
+  rm,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join, resolve } from "node:path";
+import process from "node:process";
+
+if (process.platform !== "win32") {
+  throw new Error("Installed NSIS E2E must run on Windows");
+}
+if (process.arch !== "x64" && process.arch !== "arm64") {
+  throw new Error(`Unsupported Windows E2E architecture: ${process.arch}`);
+}
+
+const pkg = (await import("../package.json", { with: { type: "json" } })).default;
+const installer = resolve(`release/Lane-${pkg.version}-windows-setup.exe`);
+const npmCli = process.env.npm_execpath;
+if (!npmCli) throw new Error("npm_execpath is required to run installed product E2E");
+
+function e2eEnvironment(extra = {}) {
+  const inherited = Object.fromEntries(
+    [
+      "PATH",
+      "SystemRoot",
+      "WINDIR",
+      "TEMP",
+      "TMP",
+      "USERPROFILE",
+      "LOCALAPPDATA",
+      "APPDATA",
+      "LANG",
+      "LC_ALL",
+      "CI",
+      "NO_COLOR",
+      "FORCE_COLOR",
+    ].flatMap((key) => process.env[key] === undefined ? [] : [[key, process.env[key]]]),
+  );
+  return { ...inherited, ...extra };
+}
+
+function requireSuccess(result, label) {
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      `${label} failed with exit code ${result.status}:\n${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+    );
+  }
+}
+
+function assertNoExistingLaneInstallation(environment) {
+  const systemRoot = environment.SystemRoot ?? environment.WINDIR;
+  if (!systemRoot) throw new Error("SystemRoot is required for Windows installed E2E");
+  const powershell = join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  const command = [
+    "$paths = @(",
+    "  'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',",
+    "  'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',",
+    "  'HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'",
+    ");",
+    "$matches = Get-ItemProperty $paths -ErrorAction SilentlyContinue |",
+    "  Where-Object { $_.DisplayName -eq 'Lane' };",
+    "if ($matches) {",
+    "  $matches | ForEach-Object { Write-Output $_.UninstallString };",
+    "  exit 20;",
+    "}",
+  ].join("\n");
+  const checked = spawnSync(
+    powershell,
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+    { encoding: "utf8", env: environment, timeout: 30_000, windowsHide: true },
+  );
+  if (checked.status === 20) {
+    throw new Error(
+      `Refusing to run installed E2E while Lane is already installed:\n${checked.stdout}`,
+    );
+  }
+  requireSuccess(checked, "Existing Lane installation check");
+}
+
+async function peArchitecture(path) {
+  const file = await open(path, "r");
+  try {
+    const dosHeader = Buffer.alloc(64);
+    await file.read(dosHeader, 0, dosHeader.length, 0);
+    const peOffset = dosHeader.readUInt32LE(0x3c);
+    const peHeader = Buffer.alloc(6);
+    await file.read(peHeader, 0, peHeader.length, peOffset);
+    if (peHeader.subarray(0, 4).toString("binary") !== "PE\0\0") {
+      throw new Error(`${path} is not a PE executable`);
+    }
+    const machine = peHeader.readUInt16LE(4);
+    if (machine === 0x8664) return "x64";
+    if (machine === 0xaa64) return "arm64";
+    throw new Error(`Unsupported PE machine 0x${machine.toString(16)} in ${path}`);
+  } finally {
+    await file.close();
+  }
+}
+
+const environment = e2eEnvironment();
+assertNoExistingLaneInstallation(environment);
+const temporaryRoot = await realpath(tmpdir());
+const directory = await mkdtemp(join(temporaryRoot, "lane-nsis-e2e-"));
+const installedDirectory = join(directory, "Lane");
+const installedExecutable = join(installedDirectory, "Lane.exe");
+let runError;
+try {
+  await access(installer);
+  const installed = spawnSync(installer, ["/S", `/D=${installedDirectory}`], {
+    encoding: "utf8",
+    env: environment,
+    timeout: 120_000,
+    windowsHide: true,
+  });
+  requireSuccess(installed, "NSIS installation");
+  await access(installedExecutable);
+
+  const architecture = await peArchitecture(installedExecutable);
+  if (architecture !== process.arch) {
+    throw new Error(
+      `NSIS installed ${architecture} Lane.exe on a ${process.arch} Windows runner`,
+    );
+  }
+  console.log(`Installed ${architecture} Lane.exe from ${basename(installer)}`);
+
+  const child = spawn(process.execPath, [npmCli, "run", "e2e"], {
+    env: e2eEnvironment({ LANE_E2E_APP_PATH: installedExecutable }),
+    stdio: "inherit",
+    windowsHide: true,
+  });
+  const exitCode = await new Promise((resolveExit, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code) => resolveExit(code ?? 1));
+  });
+  if (exitCode !== 0) {
+    throw new Error(`Installed Windows product E2E failed with exit code ${exitCode}`);
+  }
+} catch (error) {
+  runError = error;
+}
+
+let cleanupError;
+try {
+  const entries = await readdir(installedDirectory);
+  const uninstallerName = entries.find((name) => /^uninstall.*\.exe$/i.test(name));
+  if (!uninstallerName) throw new Error("Installed Lane package has no NSIS uninstaller");
+  const uninstalled = spawnSync(join(installedDirectory, uninstallerName), ["/S"], {
+    encoding: "utf8",
+    env: environment,
+    timeout: 120_000,
+    windowsHide: true,
+  });
+  requireSuccess(uninstalled, "NSIS uninstallation");
+} catch (error) {
+  if (error?.code !== "ENOENT") cleanupError = error;
+}
+try {
+  const resolvedDirectory = resolve(directory);
+  if (resolvedDirectory === temporaryRoot || !resolvedDirectory.startsWith(`${temporaryRoot}\\`)) {
+    throw new Error(`Refusing to remove unsafe Windows E2E directory: ${resolvedDirectory}`);
+  }
+  await rm(resolvedDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
+} catch (error) {
+  cleanupError ??= error;
+}
+
+if (runError && cleanupError) {
+  throw new AggregateError([runError, cleanupError], "Windows NSIS E2E and cleanup both failed");
+}
+if (runError) throw runError;
+if (cleanupError) throw cleanupError;

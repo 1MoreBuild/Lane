@@ -27,6 +27,7 @@ interface LaneSession {
 
 interface LaneTestContext {
   userData: string;
+  cliCommandPath: string;
   secretKey: string;
   controlSocket: string;
   gatewayPort: number;
@@ -91,6 +92,11 @@ function packagedExecutable(): string {
   throw new Error(`Lane E2E does not support ${process.platform}`);
 }
 
+function nativeHostExecutable(): string {
+  if (process.platform !== "win32") return packagedExecutable();
+  return resolve(dirname(packagedExecutable()), "resources/bin/lane-native-host.exe");
+}
+
 async function createContext(): Promise<LaneTestContext> {
   const userData = await mkdtemp(join(tmpdir(), "lane-e2e-"));
   const controlSocket =
@@ -129,6 +135,7 @@ async function createContext(): Promise<LaneTestContext> {
   );
   return {
     userData,
+    cliCommandPath: join(userData, "bin", "lane.cmd"),
     controlSocket,
     gatewayPort,
     upstream,
@@ -150,6 +157,7 @@ async function launchLane(
       LANE_E2E_USER_DATA: context.userData,
       LANE_E2E_SECRET_KEY: context.secretKey,
       LANE_CONTROL_SOCKET: context.controlSocket,
+      LANE_E2E_CLI_COMMAND_PATH: context.cliCommandPath,
     }),
     artifactsDir: testInfo.outputPath("electron-artifacts"),
   });
@@ -162,6 +170,12 @@ async function launchLane(
     BrowserWindow.getAllWindows().some((window) => window.isVisible()),
   );
   expect(windowVisible).toBe(false);
+  if (process.platform === "win32") {
+    const menuBarVisible = await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().some((window) => window.isMenuBarVisible()),
+    );
+    expect(menuBarVisible).toBe(false);
+  }
   page.on("pageerror", (error) => {
     context.rendererErrors.push(error.message);
   });
@@ -485,6 +499,20 @@ test.describe("Lane packaged product journeys", () => {
     ).toBe(true);
 
     await page.getByRole("button", { name: "Open Activity" }).click();
+    const scrollViewport = page.locator('[data-slot="scroll-area-viewport"]');
+    const activityOverflow = await scrollViewport.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop,
+    }));
+    expect(activityOverflow.scrollHeight).toBeGreaterThan(activityOverflow.clientHeight);
+    expect(activityOverflow.scrollTop).toBe(0);
+    await scrollViewport.hover();
+    await page.mouse.wheel(0, 800);
+    await expect.poll(() =>
+      scrollViewport.evaluate((element) => element.scrollTop),
+    ).toBeGreaterThan(0);
+    await scrollViewport.evaluate((element) => element.scrollTo({ top: 0 }));
     await expect(activity.getByText("/v1/responses", { exact: true }).first()).toBeVisible();
     await expect(activity.getByText(/mock-model/).first()).toBeVisible();
     await expect(activity.getByText(/\d+ in · \d+ out/).first()).toBeVisible();
@@ -613,11 +641,21 @@ test.describe("Lane packaged product journeys", () => {
     await expect(effort).toContainText("High");
     await expect(speed).toContainText("Standard");
 
-    const mainOverflow = await page.locator("main").evaluate((element) => ({
+    await page.getByRole("button", { name: "Open Settings" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+    await expect(page.getByRole("combobox", { name: "Theme" })).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    const overviewOverflow = await page
+      .locator('[data-slot="scroll-area-viewport"]')
+      .evaluate((element) => ({
       clientHeight: element.clientHeight,
       scrollHeight: element.scrollHeight,
-    }));
-    expect(mainOverflow.scrollHeight).toBeLessThanOrEqual(mainOverflow.clientHeight);
+      }));
+    expect(overviewOverflow.scrollHeight).toBeLessThanOrEqual(
+      overviewOverflow.clientHeight,
+    );
 
     await effort.click();
     const ultraOption = page.getByRole("option", { name: "Ultra" });
@@ -645,6 +683,48 @@ test.describe("Lane packaged product journeys", () => {
     await expect(page.getByRole("combobox", { name: "Speed" })).toContainText(
       "Fast",
     );
+  });
+
+  test("adapts the overview and activity workspace to a wide window", async ({
+    browserName: _browserName,
+  }, testInfo) => {
+    const { app, page } = context.session!;
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setSize(1440, 900);
+    });
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBeGreaterThan(1300);
+
+    const gatewayBox = await page.locator('[data-lane-section="gateway"]').boundingBox();
+    const providersBox = await page.locator('[data-lane-section="providers"]').boundingBox();
+    const modelsBox = await page.locator('[data-lane-section="models"]').boundingBox();
+    expect(gatewayBox).not.toBeNull();
+    expect(providersBox).not.toBeNull();
+    expect(modelsBox).not.toBeNull();
+    expect(Math.abs(gatewayBox!.y - providersBox!.y)).toBeLessThan(8);
+    expect(providersBox!.x).toBeGreaterThan(gatewayBox!.x + gatewayBox!.width);
+    expect(Math.abs(modelsBox!.x - gatewayBox!.x)).toBeLessThan(2);
+    expect(Math.abs(modelsBox!.width - gatewayBox!.width)).toBeLessThan(2);
+    expect(modelsBox!.y).toBeGreaterThan(gatewayBox!.y + gatewayBox!.height);
+
+    const overviewScreenshot = testInfo.outputPath("responsive-wide-overview.png");
+    await page.screenshot({ path: overviewScreenshot });
+    await testInfo.attach("responsive-wide-overview", {
+      path: overviewScreenshot,
+      contentType: "image/png",
+    });
+
+    await page.getByRole("button", { name: "Open Activity" }).click();
+    const activityBox = await page.getByRole("region", { name: "Activity" }).boundingBox();
+    expect(activityBox).not.toBeNull();
+    expect(activityBox!.width).toBeGreaterThan(900);
+    expect(activityBox!.width).toBeLessThanOrEqual(1152);
+
+    const responsiveScreenshot = testInfo.outputPath("responsive-wide-window.png");
+    await page.screenshot({ path: responsiveScreenshot });
+    await testInfo.attach("responsive-wide-window", {
+      path: responsiveScreenshot,
+      contentType: "image/png",
+    });
   });
 
   test("enforces the client boundary and maps upstream failures", async () => {
@@ -699,6 +779,23 @@ test.describe("Lane packaged product journeys", () => {
 
   test("serves the packaged CLI", async () => {
     const page = context.session!.page;
+    if (process.platform === "win32") {
+      await page.getByRole("button", { name: "Open Settings" }).click();
+      const settings = page.getByRole("dialog");
+      await settings.getByRole("button", { name: "Install…" }).click();
+      await expect(settings.getByText("Installed", { exact: true })).toBeVisible();
+      await expect.poll(() => readFile(context.cliCommandPath, "utf8")).toContain(
+        "@rem Lane CLI launcher v1",
+      );
+      const version = await runPackagedProcess(
+        context,
+        process.env.ComSpec ?? "cmd.exe",
+        ["/d", "/c", context.cliCommandPath, "--version"],
+      );
+      expect(version.code, version.stderr).toBe(0);
+      expect(version.stdout.toString("utf8")).toContain("0.1.7");
+      await page.keyboard.press("Escape");
+    }
     await connectMockProvider(page, context.upstream);
     const { apiBaseUrl } = await startGateway(page);
 
@@ -783,11 +880,6 @@ test.describe("Lane packaged product journeys", () => {
   });
 
   test("serves the approved browser extension through the packaged native host", async () => {
-    test.skip(
-      process.platform === "win32",
-      "Windows Native Messaging requires a dedicated binary host and is not shipped yet",
-    );
-
     const page = context.session!.page;
     await connectMockProvider(page, context.upstream);
     const { apiBaseUrl, clientKey } = await startGateway(page);
@@ -798,7 +890,7 @@ test.describe("Lane packaged product journeys", () => {
     });
     const native = await runPackagedProcess(
       context,
-      packagedExecutable(),
+      nativeHostExecutable(),
       [TRANSLY_PRODUCTION_NATIVE_ALLOWED_ORIGIN],
       request,
     );
@@ -826,7 +918,7 @@ test.describe("Lane packaged product journeys", () => {
 
     const rejected = await runPackagedProcess(
       context,
-      packagedExecutable(),
+      nativeHostExecutable(),
       ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"],
       request,
     );

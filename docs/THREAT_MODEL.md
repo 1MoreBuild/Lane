@@ -82,10 +82,13 @@ and public model IDs. Provider API keys and OAuth tokens never cross this
 boundary. Lane removes persisted browser-extension origins that are no longer
 allowlisted when it loads configuration.
 
-Lane installs this host only on macOS. It does not register an unverified
-Electron GUI executable as a native host on Windows or Linux. Windows support
-is gated on a separate, minimal native-host helper with the same origin checks
-and secret boundary; Linux support is gated on equivalent packaged-product E2E.
+Lane registers its packaged executable as the host on macOS. On Windows it
+registers a separate, minimal `lane-native-host.exe`; Chrome never launches the
+Electron GUI as a native host. The helper repeats the fixed-origin check, sends
+only `browser-client-connect` over Lane's same-user named pipe, and emits only a
+valid Native Messaging frame. It can wake Lane but cannot read provider
+credentials or proxy model requests. Linux support remains gated on equivalent
+packaged-product E2E.
 
 For each production release, the Transly manifest public key, unpacked extension
 ID, Dashboard item ID, Native Messaging manifest, and Lane allowlist must still
@@ -154,12 +157,14 @@ not check for updates. The client never embeds a GitHub token. The user starts
 the download from Lane's update control; progress is shown in place, and the
 signed update installs and restarts Lane when the download completes.
 
-The release workflow refuses to publish unless macOS signing and notarization
-credentials are present. It verifies the app signature, Gatekeeper assessment,
-stapled notarization ticket, updater metadata, and checksums before creating the
-release. GitHub Actions are pinned to full commit hashes. A compromised release
-workflow, GitHub account, signing identity, or upstream updater dependency
-remains a software-supply-chain risk.
+The release workflow refuses to publish unless macOS signing/notarization and
+Azure Artifact Signing credentials are present. It verifies the expected signing
+identities, Gatekeeper assessment, stapled notarization ticket, Windows NSIS and
+native executable publishers and timestamps, updater metadata, checksums, and installed-product
+behavior on all supported native architectures before creating the release.
+GitHub Actions are pinned to full commit hashes. A compromised release workflow,
+GitHub account, signing identity, or upstream updater dependency remains a
+software-supply-chain risk.
 
 ## Residual risks
 
@@ -174,5 +179,5 @@ remains a software-supply-chain risk.
   key, though not upstream credentials.
 - Model output is untrusted content. Client apps must apply their own escaping,
   authorization, and tool-execution policy.
-- Unsigned preview builds cannot use the macOS updater and require manual
+- Unsigned preview builds cannot use the automatic updater and require manual
   replacement.

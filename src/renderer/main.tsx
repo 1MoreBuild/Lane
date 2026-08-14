@@ -541,6 +541,7 @@ function App(): ReactNode {
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [cliIntegration, setCliIntegration] = useState<CliIntegrationState | null>(null);
   const [cliBusy, setCliBusy] = useState(false);
+  const [cliError, setCliError] = useState("");
 
   useEffect(() => {
     const unsubscribeState = window.lane.onStateChanged(setState);
@@ -565,9 +566,16 @@ function App(): ReactNode {
     window.lane.getUpdateState().then(setUpdateState).catch(() => {
       setUpdateState({ status: "idle" });
     });
-    window.lane.getCliIntegration().then(setCliIntegration).catch(() => {
-      setCliIntegration(null);
-    });
+    window.lane
+      .getCliIntegration()
+      .then((integration) => {
+        setCliIntegration(integration);
+        setCliError(integration.error ?? "");
+      })
+      .catch((error: unknown) => {
+        setCliIntegration(null);
+        setCliError(getErrorMessage(error));
+      });
 
     return () => {
       unsubscribeState();
@@ -671,11 +679,13 @@ function App(): ReactNode {
 
   async function installCliIntegration(): Promise<void> {
     setCliBusy(true);
-    setLoadError("");
+    setCliError("");
     try {
-      setCliIntegration(await window.lane.installCliIntegration());
+      const integration = await window.lane.installCliIntegration();
+      setCliIntegration(integration);
+      setCliError(integration.error ?? "");
     } catch (error) {
-      setLoadError(getErrorMessage(error));
+      setCliError(getErrorMessage(error));
     } finally {
       setCliBusy(false);
     }
@@ -787,7 +797,7 @@ function App(): ReactNode {
 
   const recentActivity = activityItems(state.logs);
   const activityPanel = (
-    <section aria-label="Activity" className="pb-6">
+    <section aria-label="Activity" className="lane-activity-panel pb-6">
       <div className="flex items-center gap-3 pb-3">
         <h1 className="lane-section-title">Activity</h1>
         <div className="ml-auto flex items-center gap-2">
@@ -969,21 +979,28 @@ function App(): ReactNode {
           />
         </div>
 
-        <div className="flex items-center justify-between gap-4 py-3">
-          <p className="lane-value">Command line</p>
-          {cliIntegration?.enabled ? (
-            <span className="lane-meta text-muted-foreground">Installed</span>
-          ) : (
-            <Button
-              disabled={cliBusy}
-              focusableWhenDisabled
-              onClick={() => void installCliIntegration()}
-              size="sm"
-              title="Install the lane command for local agents"
-              variant="outline"
-            >
-              {cliBusy ? "Installing…" : "Install…"}
-            </Button>
+        <div className="py-3">
+          <div className="flex items-center justify-between gap-4">
+            <p className="lane-value">Command line</p>
+            {cliIntegration?.installed ? (
+              <span className="lane-meta text-muted-foreground">Installed</span>
+            ) : (
+              <Button
+                disabled={cliBusy}
+                focusableWhenDisabled
+                onClick={() => void installCliIntegration()}
+                size="sm"
+                title="Install the lane command for local agents"
+                variant="outline"
+              >
+                {cliBusy ? "Installing…" : "Install…"}
+              </Button>
+            )}
+          </div>
+          {cliError && (
+            <p className="lane-meta mt-2 text-destructive" role="alert">
+              {cliError}
+            </p>
           )}
         </div>
       </div>
@@ -1020,7 +1037,12 @@ function App(): ReactNode {
         <div className="app-content bg-background">
           <ScrollArea className="h-full">
             <main className="min-h-full bg-background">
-              <div className="lane-page mx-auto w-full max-w-2xl">
+              <div
+                className={cn(
+                  "lane-page mx-auto w-full",
+                  activeView === "activity" ? "is-activity" : "is-overview",
+                )}
+              >
                 {window.lane.platform !== "darwin" && (
                   <div className="flex items-center justify-end gap-2 pb-4">
                     <UtilityControls
@@ -1038,8 +1060,12 @@ function App(): ReactNode {
                 {activeView === "activity" ? (
                   activityPanel
                 ) : (
-                  <>
-                    <section className="scroll-mt-6 pb-2" id="gateway">
+                  <div className="lane-overview-grid">
+                    <section
+                      className="lane-overview-gateway scroll-mt-6 pb-2"
+                      data-lane-section="gateway"
+                      id="gateway"
+                    >
               <div className="lane-section-heading">
                 <h1 className="lane-section-title">Gateway</h1>
                 <div className="flex items-center gap-2">
@@ -1200,7 +1226,11 @@ function App(): ReactNode {
               )}
             </section>
 
-            <section className="scroll-mt-6 py-2" id="providers">
+            <section
+              className="lane-overview-providers scroll-mt-6 py-2"
+              data-lane-section="providers"
+              id="providers"
+            >
               <div className="lane-section-heading">
                 <h2 className="lane-section-title">Connections</h2>
                 <Dialog open={providerDialogOpen} onOpenChange={changeProviderDialog}>
@@ -1428,9 +1458,13 @@ function App(): ReactNode {
               </div>
             </section>
 
-            <section className="pb-2 pt-2">
-              <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2">
-                <div className="grid min-w-0 gap-1.5">
+            <section
+              className="lane-overview-models pb-2 pt-2"
+              data-lane-section="models"
+            >
+              <h2 className="lane-models-heading lane-section-title">Model defaults</h2>
+              <div className="lane-model-grid">
+                <div className="lane-model-default grid min-w-0 gap-1.5">
                   <div className="flex items-center gap-1">
                     <p className="lane-label text-muted-foreground">Default model</p>
                     <Tooltip>
@@ -1496,7 +1530,7 @@ function App(): ReactNode {
                   </Select>
                 </div>
                 {supportsReasoningEffort && (
-                  <div className="grid min-w-0 gap-1.5">
+                  <div className="lane-model-effort grid min-w-0 gap-1.5">
                     <p className="lane-label text-muted-foreground">Effort</p>
                     <Select
                       value={displayedReasoningEffort}
@@ -1537,7 +1571,7 @@ function App(): ReactNode {
                   </div>
                 )}
                 {supportsSpeedMode && (
-                  <div className="grid min-w-0 gap-1.5">
+                  <div className="lane-model-speed grid min-w-0 gap-1.5">
                     <p className="lane-label text-muted-foreground">Speed</p>
                     <Select
                       value={state.speedMode}
@@ -1582,7 +1616,7 @@ function App(): ReactNode {
                 )}
               </div>
               {state.imageModels.length > 0 && (
-                <div className="mt-3 grid w-[42%] min-w-0 gap-1.5">
+                <div className="lane-image-model mt-3 grid min-w-0 gap-1.5">
                   <div className="flex items-center gap-1">
                     <p className="lane-label text-muted-foreground">Image model</p>
                     <Tooltip>
@@ -1652,7 +1686,7 @@ function App(): ReactNode {
                 </div>
               )}
                     </section>
-                  </>
+                  </div>
                 )}
               </div>
             </main>

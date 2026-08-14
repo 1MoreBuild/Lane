@@ -53,7 +53,8 @@ manifest gives unpacked and store builds the same ID:
 Transly service worker
   │ versioned Chrome Native Messaging frame
   ▼
-packaged Lane executable in native-host mode
+macOS: packaged Lane executable in native-host mode
+Windows: dedicated lane-native-host.exe
   │ private same-user control socket
   ▼
 AppCore authorizes the Transly origin and starts the gateway
@@ -62,13 +63,13 @@ AppCore authorizes the Transly origin and starts the gateway
 Transly receives only API URL, Lane client key, and public model IDs
 ```
 
-The native host manifest is installed in Chrome's per-user directory on macOS.
-Native Messaging is not shipped on Windows or Linux. Chromium requires a
-byte-exact binary stdout channel, while the Electron GUI executable can prefix
-stdout on Windows; Linux has no packaged-product verification yet. Supporting
-either platform requires a dedicated native-host helper rather than registering
-an unverified GUI executable. Manual provider configuration remains available
-in Transly when Lane is not installed.
+The native host manifest is installed in Chrome's per-user directory on macOS
+and registered under the current user's Chrome registry key on Windows. The
+Windows helper validates the fixed Transly origin, uses the private named pipe,
+and wakes Lane when needed. It does not load provider credentials or proxy model
+requests. Native Messaging is not shipped on Linux because that platform has no
+packaged-product verification yet. Manual provider configuration remains
+available in Transly when Lane is not installed.
 
 ## Main components
 
@@ -158,8 +159,12 @@ application, and removes the provider. On supported platforms it also exercises
 the approved Native Messaging host. macOS release jobs install the DMG first
 and run the same journey against the installed app on native Apple Silicon and
 Intel runners. Windows CI runs the UI, API, security, persistence, port, and CLI
-journeys against the packaged Windows application; Native Messaging remains
-disabled until Lane has a dedicated Windows host.
+journeys, including the dedicated Native Messaging host, against the packaged
+Windows application. The manually dispatched Windows Preview workflow builds
+one unsigned x64 + ARM64 NSIS installer, then installs, tests, and uninstalls it
+on native x64 and ARM64 runners. Stable tags run the same native-architecture
+gates against an Azure Artifact Signing Authenticode release build and publish `latest.yml`, the
+NSIS installer, and its blockmap to the shared GitHub Release update feed.
 
 E2E credentials use a per-run AES-GCM key and a user-data directory that must
 resolve inside the operating system's temporary directory. The production

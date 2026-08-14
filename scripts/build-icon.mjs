@@ -13,11 +13,12 @@ import { Resvg } from "@resvg/resvg-js";
 
 const projectDir = resolve(import.meta.dirname, "..");
 const sourcePath = join(projectDir, "build", "icon.svg");
-const outputPath = join(projectDir, "build", "icon.icns");
+const macOutputPath = join(projectDir, "build", "icon.icns");
+const windowsOutputPath = join(projectDir, "build", "icon.ico");
 const workDir = mkdtempSync(join(tmpdir(), "lane-icon-"));
 const iconsetDir = join(workDir, "Lane.iconset");
 
-const sizes = [
+const macSizes = [
   ["icon_16x16.png", 16],
   ["icon_16x16@2x.png", 32],
   ["icon_32x32.png", 32],
@@ -29,6 +30,39 @@ const sizes = [
   ["icon_512x512.png", 512],
   ["icon_512x512@2x.png", 1024],
 ];
+const windowsSizes = [16, 24, 32, 48, 64, 128, 256];
+
+function renderPng(svg, size) {
+  return new Resvg(svg, {
+    fitTo: { mode: "width", value: size },
+    imageRendering: 0,
+    shapeRendering: 2,
+  }).render().asPng();
+}
+
+function encodeIco(images) {
+  const headerSize = 6;
+  const entrySize = 16;
+  let imageOffset = headerSize + entrySize * images.length;
+  const header = Buffer.alloc(headerSize);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(images.length, 4);
+  const entries = images.map(({ size, png }) => {
+    const entry = Buffer.alloc(entrySize);
+    entry.writeUInt8(size === 256 ? 0 : size, 0);
+    entry.writeUInt8(size === 256 ? 0 : size, 1);
+    entry.writeUInt8(0, 2);
+    entry.writeUInt8(0, 3);
+    entry.writeUInt16LE(1, 4);
+    entry.writeUInt16LE(32, 6);
+    entry.writeUInt32LE(png.length, 8);
+    entry.writeUInt32LE(imageOffset, 12);
+    imageOffset += png.length;
+    return entry;
+  });
+  return Buffer.concat([header, ...entries, ...images.map(({ png }) => png)]);
+}
 
 function assertTransparentMargin(image) {
   const { width, height, pixels } = image;
@@ -62,23 +96,30 @@ try {
 
   const sourcePng = join(workDir, "icon-1024.png");
   writeFileSync(sourcePng, source.asPng());
-  mkdirSync(iconsetDir);
+  const windowsImages = windowsSizes.map((size) => ({
+    size,
+    png: renderPng(svg, size),
+  }));
+  writeFileSync(windowsOutputPath, encodeIco(windowsImages));
+  console.log(`Built transparent Windows icon: ${windowsOutputPath}`);
 
-  for (const [filename, size] of sizes) {
-    execFileSync("/usr/bin/sips", [
-      "-z",
-      String(size),
-      String(size),
-      sourcePng,
-      "--out",
-      join(iconsetDir, filename),
-    ], { stdio: "ignore" });
+  if (process.platform === "darwin") {
+    mkdirSync(iconsetDir);
+    for (const [filename, size] of macSizes) {
+      execFileSync("/usr/bin/sips", [
+        "-z",
+        String(size),
+        String(size),
+        sourcePng,
+        "--out",
+        join(iconsetDir, filename),
+      ], { stdio: "ignore" });
+    }
+    const generatedPath = join(workDir, "Lane.icns");
+    execFileSync("/usr/bin/iconutil", ["-c", "icns", iconsetDir, "-o", generatedPath]);
+    cpSync(generatedPath, macOutputPath);
+    console.log(`Built transparent macOS icon: ${macOutputPath}`);
   }
-
-  const generatedPath = join(workDir, "Lane.icns");
-  execFileSync("/usr/bin/iconutil", ["-c", "icns", iconsetDir, "-o", generatedPath]);
-  cpSync(generatedPath, outputPath);
-  console.log(`Built transparent macOS icon: ${outputPath}`);
 } finally {
   rmSync(workDir, { force: true, recursive: true });
 }

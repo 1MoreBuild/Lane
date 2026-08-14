@@ -44,7 +44,7 @@ import {
   requestCliControl,
   type CliControlRequest,
 } from "./cli-control.ts";
-import { CliInstaller } from "./cli-install.ts";
+import { CliInstaller, restoreEnabledCliIntegration } from "./cli-install.ts";
 import { ConfigStore } from "./config-store.ts";
 import { SecureCredentialStore } from "./credential-store.ts";
 import { ElectronSecretBackend } from "./electron-secret-backend.ts";
@@ -58,6 +58,7 @@ import {
   resolveSafeStorageProfile,
 } from "./safe-storage-profile.ts";
 import { SecretStore } from "./secret-store.ts";
+import { WindowsTrayClickController } from "./windows-tray-click.ts";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
 const cliWakeMode = process.env.LANE_CLI_WAKE === "1";
@@ -94,6 +95,7 @@ process.env.PI_OAUTH_CALLBACK_HOST = "127.0.0.1";
 let mainWindow: BrowserWindow | undefined;
 let menubarWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
+let trayClickController: WindowsTrayClickController | undefined;
 let core: AppCore | undefined;
 let oauth: OAuthCoordinator | undefined;
 let cliControlServer: LaneCliControlServer | undefined;
@@ -160,6 +162,7 @@ async function shutdownServices(): Promise<void> {
 
 function showMainWindow(): void {
   menubarWindow?.hide();
+  if (mainWindow?.isMinimized()) mainWindow.restore();
   mainWindow?.show();
   mainWindow?.focus();
 }
@@ -659,6 +662,8 @@ async function setDockIconVisible(visible: boolean): Promise<void> {
 }
 
 function destroyMenuBar(): void {
+  trayClickController?.dispose();
+  trayClickController = undefined;
   menubarWindow?.destroy();
   menubarWindow = undefined;
   tray?.destroy();
@@ -675,7 +680,16 @@ async function setMenuBarIconVisible(visible: boolean): Promise<void> {
   if (tray && menubarWindow) return;
   tray = new Tray(trayImage());
   menubarWindow = await createMenubarWindow();
-  tray.on("click", toggleMenubarWindow);
+  if (process.platform === "win32") {
+    trayClickController = new WindowsTrayClickController({
+      togglePopup: toggleMenubarWindow,
+      openMainWindow: showMainWindow,
+    });
+    tray.on("click", () => trayClickController?.handleClick());
+    tray.on("double-click", () => trayClickController?.handleDoubleClick());
+  } else {
+    tray.on("click", toggleMenubarWindow);
+  }
   tray.on("right-click", toggleMenubarWindow);
   menubarWindow.on("closed", () => {
     menubarWindow = undefined;
@@ -772,13 +786,16 @@ async function createMenubarWindow(): Promise<BrowserWindow> {
 async function createWindow(): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     width: 660,
-    height: 470,
+    height: process.platform === "win32" ? 500 : 470,
     minWidth: 620,
     minHeight: 450,
     // Packaged E2E exercises the real renderer and IPC boundary in a hidden
     // native window so the suite does not steal focus from the desktop.
     show: !cliWakeMode && !e2eMode,
     title: "Lane",
+    // Keep Windows focused on the gateway UI while preserving the application
+    // menu and its keyboard access through Alt.
+    autoHideMenuBar: process.platform === "win32",
     backgroundColor:
       process.platform === "darwin"
         ? "#00000000"
@@ -872,15 +889,43 @@ async function boot(): Promise<void> {
   });
   logger.subscribe(scheduleActivityRefresh);
   await core.initialize();
+  const windowsCommandPath =
+    process.platform === "win32"
+      ? e2eMode
+        ? process.env.LANE_E2E_CLI_COMMAND_PATH
+        : process.env.LOCALAPPDATA
+          ? join(process.env.LOCALAPPDATA, "Microsoft/WindowsApps/lane.cmd")
+          : undefined
+      : undefined;
   cliInstaller = new CliInstaller({
     executablePath: process.execPath,
     launcherPath: join(process.resourcesPath, "bin/lane"),
+    ...(windowsCommandPath
+      ? {
+          windowsCommandPath,
+          windowsNativeLauncherPath: join(process.resourcesPath, "bin/lane-cli.exe"),
+        }
+      : {}),
   });
   const initialState = await core.getState();
+  if (process.platform === "win32" && app.isPackaged) {
+    try {
+      await restoreEnabledCliIntegration(cliInstaller, initialState.cliEnabled);
+    } catch (error) {
+      logger.warn(`CLI integration could not be restored: ${redact(error)}`);
+    }
+  }
   await startCliControl(core);
-  if (!process.defaultApp && !e2eMode && process.platform === "darwin") {
+  if (
+    !process.defaultApp &&
+    !e2eMode &&
+    (process.platform === "darwin" || process.platform === "win32")
+  ) {
     const nativeMessaging = new NativeMessagingInstaller({
-      executablePath: process.execPath,
+      executablePath:
+        process.platform === "win32"
+          ? join(process.resourcesPath, "bin/lane-native-host.exe")
+          : process.execPath,
     });
     try {
       const integration = await nativeMessaging.install();

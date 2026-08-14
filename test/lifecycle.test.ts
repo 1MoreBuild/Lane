@@ -26,6 +26,17 @@ const discover = async () => [
 ];
 
 describe("persistence and lifecycle", () => {
+  it("keeps new Windows installs in the system tray by default", () => {
+    expect(defaultConfig("win32").visibility).toEqual({
+      showDockIcon: false,
+      showMenuBarIcon: true,
+    });
+    expect(defaultConfig("darwin").visibility).toEqual({
+      showDockIcon: true,
+      showMenuBarIcon: true,
+    });
+  });
+
   it("opens with an ephemeral client key when secure storage is denied", async () => {
     const settingsPath = await tempPath("denied-settings.json");
     const secretsPath = settingsPath.replace("settings.json", "secrets.json");

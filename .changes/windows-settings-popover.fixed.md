@@ -1,0 +1,1 @@
+- Fixed Settings opening two overlapping panels on Windows.

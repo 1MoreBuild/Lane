@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
-import { lstat, realpath } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { promisify } from "node:util";
 import type { CliIntegrationState } from "../shared/contracts.ts";
 
 const execFileAsync = promisify(execFile);
 export const CLI_LINK_PATHS = ["/usr/local/bin/lane", "/opt/homebrew/bin/lane"] as const;
+export const WINDOWS_CLI_MARKER = "@rem Lane CLI launcher v1";
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
@@ -25,12 +27,52 @@ async function isLinkTo(path: string, targetPath: string): Promise<boolean> {
   }
 }
 
+function windowsBatchPath(value: string): string {
+  if (/[\r\n"]/.test(value)) throw new Error("Lane executable path cannot be used by cmd.exe");
+  return value.replaceAll("%", "%%");
+}
+
+export function windowsCliLauncher(nativeLauncherPath: string): string {
+  return [
+    WINDOWS_CLI_MARKER,
+    "@echo off",
+    `"${windowsBatchPath(nativeLauncherPath)}" %*`,
+    "exit /b %ERRORLEVEL%",
+    "",
+  ].join("\r\n");
+}
+
+async function readOptional(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
 export interface CliInstallerOptions {
   executablePath: string;
   launcherPath: string;
   platform?: NodeJS.Platform;
   linkPaths?: readonly string[];
+  windowsCommandPath?: string;
+  windowsNativeLauncherPath?: string;
   runPrivileged?: (command: string) => Promise<void>;
+}
+
+export interface CliIntegrationInstaller {
+  getState(enabled: boolean): Promise<CliIntegrationState>;
+  install(): Promise<CliIntegrationState>;
+}
+
+export async function restoreEnabledCliIntegration(
+  installer: CliIntegrationInstaller,
+  enabled: boolean,
+): Promise<void> {
+  if (!enabled) return;
+  const state = await installer.getState(true);
+  if (!state.installed) await installer.install();
 }
 
 export class CliInstaller {
@@ -38,6 +80,8 @@ export class CliInstaller {
   private readonly launcherPath: string;
   private readonly platform: NodeJS.Platform;
   private readonly linkPaths: readonly string[];
+  private readonly windowsCommandPath: string | undefined;
+  private readonly windowsNativeLauncherPath: string | undefined;
   private readonly runPrivileged: (command: string) => Promise<void>;
 
   constructor(options: CliInstallerOptions) {
@@ -45,6 +89,8 @@ export class CliInstaller {
     this.launcherPath = options.launcherPath;
     this.platform = options.platform ?? process.platform;
     this.linkPaths = options.linkPaths ?? CLI_LINK_PATHS;
+    this.windowsCommandPath = options.windowsCommandPath;
+    this.windowsNativeLauncherPath = options.windowsNativeLauncherPath;
     this.runPrivileged =
       options.runPrivileged ??
       (async (command) => {
@@ -56,6 +102,34 @@ export class CliInstaller {
   }
 
   async getState(enabled: boolean): Promise<CliIntegrationState> {
+    if (this.platform === "win32") {
+      if (!this.windowsCommandPath || !this.windowsNativeLauncherPath) {
+        return {
+          enabled,
+          installed: false,
+          command: "lane",
+          error: "Windows command installation directory is unavailable.",
+        };
+      }
+      const contents = await readOptional(this.windowsCommandPath);
+      if (contents === undefined) return { enabled, installed: false, command: "lane" };
+      if (contents === windowsCliLauncher(this.windowsNativeLauncherPath)) {
+        return {
+          enabled,
+          installed: true,
+          command: "lane",
+          path: this.windowsCommandPath,
+        };
+      }
+      return {
+        enabled,
+        installed: false,
+        command: "lane",
+        error: contents.startsWith(WINDOWS_CLI_MARKER)
+          ? "The Lane command needs to be reinstalled."
+          : `Another command already exists at ${this.windowsCommandPath}`,
+      };
+    }
     if (this.platform !== "darwin") {
       return {
         enabled,
@@ -73,6 +147,26 @@ export class CliInstaller {
   }
 
   async install(): Promise<CliIntegrationState> {
+    if (this.platform === "win32") {
+      if (!this.windowsCommandPath || !this.windowsNativeLauncherPath) {
+        throw new Error("Windows command installation directory is unavailable");
+      }
+      await realpath(this.executablePath);
+      await realpath(this.windowsNativeLauncherPath);
+      const existing = await readOptional(this.windowsCommandPath);
+      if (existing !== undefined && !existing.startsWith(WINDOWS_CLI_MARKER)) {
+        throw new Error(`Another command already exists at ${this.windowsCommandPath}`);
+      }
+      await mkdir(dirname(this.windowsCommandPath), { recursive: true });
+      await writeFile(
+        this.windowsCommandPath,
+        windowsCliLauncher(this.windowsNativeLauncherPath),
+        "utf8",
+      );
+      const state = await this.getState(true);
+      if (!state.installed) throw new Error("Lane command was not installed");
+      return state;
+    }
     if (this.platform !== "darwin") {
       throw new Error("CLI installation is currently available on macOS only");
     }

@@ -144,12 +144,33 @@ describe("Lane native messaging", () => {
     ]);
   });
 
-  it("does not register the Electron GUI executable as a Windows native host", async () => {
+  it("registers a dedicated Windows native host executable for Chrome", async () => {
+    const localAppDataPath = dirname(await tempPath("local-app-data-marker"));
+    const executablePath = "C:\\Program Files\\Lane\\resources\\bin\\lane-native-host.exe";
+    const registerWindowsHost = vi.fn(async () => {});
     const installer = new NativeMessagingInstaller({
-      executablePath: "C:\\Program Files\\Lane\\Lane.exe",
+      executablePath,
       platform: "win32",
+      localAppDataPath,
+      registerWindowsHost,
     });
+    const state = await installer.install();
+    expect(state.installed).toBe(true);
+    expect(registerWindowsHost).toHaveBeenCalledWith(state.manifestPath);
+    expect(JSON.parse(await readFile(state.manifestPath!, "utf8"))).toEqual({
+      name: LANE_NATIVE_HOST_NAME,
+      description: "Connect approved browser extensions to the Lane local AI gateway",
+      path: resolve(executablePath),
+      type: "stdio",
+      allowed_origins: TRANSLY_NATIVE_ALLOWED_ORIGINS,
+    });
+  });
 
+  it("does not install native messaging on unsupported platforms", async () => {
+    const installer = new NativeMessagingInstaller({
+      executablePath: "/opt/Lane/Lane",
+      platform: "linux",
+    });
     await expect(installer.install()).resolves.toEqual({
       installed: false,
       error: "Native messaging is not supported on this platform.",

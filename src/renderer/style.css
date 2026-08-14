@@ -252,19 +252,28 @@
   }
 
   html {
+    height: 100%;
     min-width: 620px;
-    min-height: 100%;
+    min-height: 0;
+    overflow: hidden;
     background: transparent;
     @apply font-sans;
   }
 
   body {
+    height: 100%;
     min-width: 620px;
-    min-height: 100vh;
+    min-height: 0;
     margin: 0;
-    overflow-x: hidden;
+    overflow: hidden;
     background: transparent;
     @apply text-foreground antialiased;
+  }
+
+  #root {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
   }
 
   button {
@@ -274,10 +283,12 @@
 
 .app-frame,
 .app-content {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 .app-frame {
+  overflow: hidden;
   position: relative;
 }
 
@@ -297,7 +308,77 @@
 }
 
 .lane-page {
-  padding: 0.75rem 1.25rem 1rem;
+  max-width: 68rem;
+  padding: 0.75rem clamp(1.25rem, 2.5vw, 2rem) 1.25rem;
+}
+
+.lane-page.is-activity {
+  max-width: 72rem;
+}
+
+.lane-overview-grid {
+  min-width: 0;
+}
+
+.lane-models-heading {
+  display: none;
+}
+
+.lane-model-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.lane-image-model {
+  width: 42%;
+}
+
+@media (min-width: 60rem) {
+  .lane-overview-grid {
+    align-items: start;
+    display: grid;
+    gap: 1.5rem 2rem;
+    grid-template-areas:
+      "gateway providers"
+      "models providers";
+    grid-template-columns: minmax(0, 1fr) 21rem;
+  }
+
+  .lane-overview-gateway {
+    grid-area: gateway;
+  }
+
+  .lane-overview-providers {
+    align-self: stretch;
+    grid-area: providers;
+    padding-top: 0;
+  }
+
+  .lane-overview-models {
+    grid-area: models;
+    padding-top: 0;
+  }
+
+  .lane-models-heading {
+    display: block;
+    margin-bottom: 0.75rem;
+  }
+
+  .lane-model-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    row-gap: 0.75rem;
+  }
+
+  .lane-model-default,
+  .lane-image-model {
+    grid-column: 1 / -1;
+  }
+
+  .lane-image-model {
+    margin-top: 0;
+    width: auto;
+  }
 }
 
 .lane-section-heading {

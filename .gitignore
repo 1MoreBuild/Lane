@@ -1,6 +1,7 @@
 node_modules/
 dist/
 release/
+build/native-host/
 coverage/
 playwright-report/
 test-results/

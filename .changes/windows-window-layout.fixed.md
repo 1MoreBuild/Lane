@@ -1,0 +1,1 @@
+- Increased the default Windows window height to fit the overview and fixed scrolling on Activity and other long pages.

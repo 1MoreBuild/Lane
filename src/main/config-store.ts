@@ -5,7 +5,11 @@ import { isAllowedTranslyExtensionOrigin } from "../shared/native-messaging.ts";
 
 const DEFAULT_PORT = 3210;
 
-export function defaultConfig(): LaneConfig {
+function defaultShowDockIcon(platform: NodeJS.Platform): boolean {
+  return platform !== "win32";
+}
+
+export function defaultConfig(platform: NodeJS.Platform = process.platform): LaneConfig {
   return {
     version: 1,
     gateway: {
@@ -21,7 +25,7 @@ export function defaultConfig(): LaneConfig {
     speedMode: "standard",
     launchAtLogin: false,
     visibility: {
-      showDockIcon: true,
+      showDockIcon: defaultShowDockIcon(platform),
       showMenuBarIcon: true,
     },
     cli: {
@@ -45,7 +49,10 @@ function isProviderConfig(value: unknown): value is ProviderConfig {
   );
 }
 
-export function validateConfig(value: unknown): LaneConfig {
+export function validateConfig(
+  value: unknown,
+  platform: NodeJS.Platform = process.platform,
+): LaneConfig {
   if (!value || typeof value !== "object") throw new Error("Invalid Lane settings");
   const input = value as Partial<LaneConfig>;
   const port = input.gateway?.port;
@@ -99,7 +106,10 @@ export function validateConfig(value: unknown): LaneConfig {
     speedMode: input.speedMode === "fast" ? "fast" : "standard",
     launchAtLogin: input.launchAtLogin === true,
     visibility: {
-      showDockIcon: input.visibility?.showDockIcon !== false,
+      showDockIcon:
+        typeof input.visibility?.showDockIcon === "boolean"
+          ? input.visibility.showDockIcon
+          : defaultShowDockIcon(platform),
       showMenuBarIcon: input.visibility?.showMenuBarIcon !== false,
     },
     cli: {

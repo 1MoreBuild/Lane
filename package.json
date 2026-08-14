@@ -18,6 +18,7 @@
   "scripts": {
     "dev": "npm run build:main && concurrently -k -s first \"vite --host 127.0.0.1\" \"wait-on http-get://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "build:icon": "node scripts/build-icon.mjs",
+    "build:native-host": "node scripts/build-native-host.mjs",
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build",
     "build": "npm run build:main && npm run build:renderer",
@@ -32,19 +33,25 @@
     "e2e:mac:arm64": "npm run package:e2e:mac:arm64 && cross-env LANE_E2E_APP_PATH=release/mac-arm64/Lane.app/Contents/MacOS/Lane npm run e2e",
     "e2e:mac:x64": "npm run package:e2e:mac:x64 && cross-env LANE_E2E_APP_PATH=release/mac/Lane.app/Contents/MacOS/Lane npm run e2e",
     "e2e:win:x64": "npm run package:e2e:win:x64 && cross-env LANE_E2E_APP_PATH=release/win-unpacked/Lane.exe npm run e2e",
+    "e2e:nsis:win": "node scripts/e2e-nsis-windows.mjs",
     "validate:packaging": "node scripts/validate-packaging.mjs",
     "package:mac": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --arm64 -c.mac.identity=-",
     "package:mac:arm64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir dmg --arm64 --publish never -c.mac.identity=-",
     "package:mac:x64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir dmg --x64 --publish never -c.mac.identity=-",
     "package:e2e:mac:arm64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --arm64 --publish never -c.mac.identity=-",
     "package:e2e:mac:x64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --x64 --publish never -c.mac.identity=-",
-    "package:e2e:win:x64": "npm run build && electron-builder --win --x64 --dir --publish never",
+    "package:e2e:win:x64": "npm run build:native-host && npm run build && electron-builder --win --x64 --dir --publish never",
     "package:mac:release:prepare": "npm run build:icon && npm run build:release",
     "package:mac:release:dist": "electron-builder --mac dmg zip --arm64 --x64 --publish never -c.mac.forceCodeSigning=true",
     "package:mac:release": "npm run package:mac:release:prepare && npm run package:mac:release:dist",
     "finalize:mac:update-metadata": "node scripts/finalize-mac-update-metadata.mjs",
     "package:mac:test": "npm run package:mac:arm64 && npm run package:mac:x64",
-    "package:win": "npm run build && electron-builder --win nsis --x64",
+    "package:win:prepare": "npm run build:icon && npm run build:native-host && npm run build",
+    "package:win:dist": "electron-builder --win nsis --x64 --arm64 --publish never",
+    "package:win": "npm run package:win:prepare && npm run package:win:dist",
+    "package:win:release:prepare": "npm run build:icon && npm run build:native-host && npm run build:release",
+    "package:win:release:dist": "electron-builder --config scripts/electron-builder.windows-release.mjs --win nsis --x64 --arm64 --publish never -c.win.forceCodeSigning=true",
+    "package:win:release": "npm run package:win:release:prepare && npm run package:win:release:dist",
     "check": "npm run lint && npm run typecheck && npm test && npm run validate:packaging"
   },
   "dependencies": {
@@ -121,6 +128,18 @@
       ]
     },
     "win": {
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-windows-setup.${ext}",
+      "extraResources": [
+        {
+          "from": "build/native-host/${arch}/lane-native-host.exe",
+          "to": "bin/lane-native-host.exe"
+        },
+        {
+          "from": "build/native-host/${arch}/lane-cli.exe",
+          "to": "bin/lane-cli.exe"
+        }
+      ],
       "target": [
         {
           "target": "nsis",
@@ -133,7 +152,8 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh"
     },
     "publish": [
       {

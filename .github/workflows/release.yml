@@ -147,9 +147,143 @@ jobs:
             test-results/e2e
           if-no-files-found: ignore
 
+  windows-build:
+    name: Build signed Windows release
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check
+      - name: Verify stable release tag
+        if: github.event_name == 'push'
+        run: node scripts/verify-release-tag.mjs "$env:GITHUB_REF_NAME" stable
+      - name: Prepare Windows release without signing credentials
+        run: npm run package:win:release:prepare
+
+      - name: Require Azure Artifact Signing configuration
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_SIGNING_ACCOUNT_NAME }}
+          AZURE_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          AZURE_SIGNING_PUBLISHER_NAME: ${{ vars.AZURE_SIGNING_PUBLISHER_NAME }}
+        shell: pwsh
+        run: |
+          $required = @(
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET",
+            "AZURE_SIGNING_ENDPOINT",
+            "AZURE_SIGNING_ACCOUNT_NAME",
+            "AZURE_SIGNING_CERTIFICATE_PROFILE_NAME",
+            "AZURE_SIGNING_PUBLISHER_NAME"
+          )
+          foreach ($name in $required) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "$name is required"
+            }
+          }
+
+      - name: Build signed x64 and ARM64 Windows update
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_SIGNING_ACCOUNT_NAME }}
+          AZURE_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          AZURE_SIGNING_PUBLISHER_NAME: ${{ vars.AZURE_SIGNING_PUBLISHER_NAME }}
+        run: npm run package:win:release:dist
+
+      - name: Verify Authenticode signatures and updater metadata
+        env:
+          AZURE_SIGNING_PUBLISHER_NAME: ${{ vars.AZURE_SIGNING_PUBLISHER_NAME }}
+        shell: pwsh
+        run: ./scripts/verify-signed-windows.ps1
+
+      - name: Run installed Windows x64 product E2E
+        run: npm run e2e:nsis:win
+      - name: Upload Windows x64 E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Lane-E2E-Windows-x64-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results/e2e
+          if-no-files-found: ignore
+
+      - name: Create Windows checksum
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $installer = "release/Lane-$version-windows-setup.exe"
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
+          "$hash  Lane-$version-windows-setup.exe" | Set-Content release/SHA256SUMS-windows
+
+      - name: Stage verified Windows release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Lane-${{ github.run_id }}-windows-stable
+          path: |
+            release/Lane-*-windows-setup.exe
+            release/Lane-*-windows-setup.exe.blockmap
+            release/latest.yml
+            release/SHA256SUMS-windows
+          if-no-files-found: error
+
+  windows-arm64-e2e:
+    name: Run installed Windows ARM64 product E2E
+    needs: windows-build
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: Lane-${{ github.run_id }}-windows-stable
+          path: release
+      - name: Verify installer signature
+        env:
+          AZURE_SIGNING_PUBLISHER_NAME: ${{ vars.AZURE_SIGNING_PUBLISHER_NAME }}
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $signature = Get-AuthenticodeSignature -LiteralPath "release/Lane-$version-windows-setup.exe"
+          if ($signature.Status -ne "Valid") { throw "Windows installer signature is invalid" }
+          $expected = $env:AZURE_SIGNING_PUBLISHER_NAME.Trim()
+          $actual = $signature.SignerCertificate.GetNameInfo(
+            [System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName,
+            $false
+          )
+          if ($actual -cne $expected) { throw "Unexpected Windows installer publisher: $actual" }
+          if ($null -eq $signature.TimeStamperCertificate) { throw "Windows installer signature is missing a trusted timestamp" }
+      - run: npm run e2e:nsis:win
+      - name: Upload Windows ARM64 E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Lane-E2E-Windows-arm64-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results/e2e
+          if-no-files-found: ignore
+
   publish:
     name: Publish stable release
-    needs: [build, intel-e2e]
+    needs: [build, intel-e2e, windows-build, windows-arm64-e2e]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -159,6 +293,10 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: Lane-${{ github.run_id }}-stable
+          path: release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: Lane-${{ github.run_id }}-windows-stable
           path: release
       - name: Publish stable GitHub release
         env:
@@ -172,6 +310,10 @@ jobs:
             release/Lane-*-mac-*.zip.blockmap
             release/latest-mac.yml
             release/SHA256SUMS
+            release/Lane-*-windows-setup.exe
+            release/Lane-*-windows-setup.exe.blockmap
+            release/latest.yml
+            release/SHA256SUMS-windows
           )
           gh release create "$GITHUB_REF_NAME" "${files[@]}" \
             --verify-tag \

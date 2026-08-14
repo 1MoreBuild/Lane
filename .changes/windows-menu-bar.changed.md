@@ -1,0 +1,1 @@
+- Hid the Windows application menu bar by default so the main window gives more space to gateway controls; press Alt to show it temporarily.

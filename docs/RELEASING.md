@@ -8,9 +8,11 @@ rollback path.
 
 - The source repository is public under the permissive MIT license.
 - Stable macOS releases are Developer ID signed, notarized, stapled, and
-  published as separate Apple Silicon and Intel artifacts.
-- Stable publication waits for signature and notarization verification plus
-  installed-product E2E on native Apple Silicon and Intel GitHub runners.
+  published as separate Apple Silicon and Intel artifacts. Stable Windows
+  releases are Authenticode signed and published as one architecture-selecting
+  NSIS installer with x64 and ARM64 payloads.
+- Stable publication waits for signature verification and installed-product E2E
+  on native Apple Silicon, Intel, Windows x64, and Windows ARM64 GitHub runners.
 - Packaged-product E2E uses a deterministic local mock provider and isolated
   user data. It never sends a paid or subscription model request.
 - Preview macOS output has a complete ad-hoc bundle signature so Gatekeeper does
@@ -25,8 +27,13 @@ rollback path.
   publishes a GitHub prerelease, never enables automatic updates, and must not
   be described as signed, notarized, or Apple-trusted.
 - Windows NSIS x64 packaging and packaged-product E2E run on a Windows host for
-  the UI, API, security, persistence, port-conflict, and CLI journeys. Windows
-  Native Messaging is not shipped until Lane has a dedicated binary host.
+  the UI, API, security, persistence, port-conflict, CLI, and dedicated Native
+  Messaging host journeys.
+- The manually dispatched Windows Preview workflow produces one unsigned NSIS
+  installer containing native x64 and ARM64 applications. It installs, tests,
+  and uninstalls the package on native x64 and ARM64 runners, then retains the
+  installer as a workflow artifact for 14 days. It does not publish a GitHub
+  Release or enable automatic updates.
 - ChatGPT / Codex login requires interactive acceptance with an eligible account.
   Automated tests do not claim that a real account can log in.
 - Automated tests use mock providers and never make a paid generation request.
@@ -94,13 +101,12 @@ The stable release workflow supplies the intended identity and notarization
 credentials explicitly and sets `forceCodeSigning`.
 
 Stable version tags such as `v0.1.0` build separate Apple Silicon and Intel DMG
-and ZIP artifacts, ZIP blockmaps, `latest-mac.yml`, checksums, and a GitHub
-Release. The ZIP, its blockmap, and metadata support the standard Squirrel.Mac
-update path and differential downloads. DMG blockmaps are not published because
-Lane's updater never consumes them. Publishing waits for signature/notarization
-checks and installed-product E2E on both Apple Silicon and a real Intel runner.
-Prerelease tags such as `v0.1.1-test.1` remain unsigned, manual-install feedback
-builds.
+and ZIP artifacts plus one signed Windows NSIS installer. `latest-mac.yml`,
+`latest.yml`, and their blockmaps support standard differential updates on both
+platforms. DMG blockmaps are not published because Lane's updater never consumes
+them. Publishing waits for signature checks and installed-product E2E on all four
+native architecture runners. Prerelease tags such as `v0.1.1-test.1` remain
+unsigned, manual-install feedback builds.
 
 Before creating a stable tag, run the `Release` workflow manually from `main`.
 The manual run uses the same signing, notarization, stapling, verification, and
@@ -134,11 +140,24 @@ The stable workflow requires these repository secrets:
 | `APPLE_API_KEY_ID` | App Store Connect API key ID |
 | `APPLE_API_ISSUER` | App Store Connect API issuer ID |
 | `APPLE_TEAM_ID` | Apple Developer team ID used to verify the final signature |
+| `AZURE_TENANT_ID` | Microsoft Entra tenant containing the CI application |
+| `AZURE_CLIENT_ID` | Client ID of the least-privilege CI signing application |
+| `AZURE_CLIENT_SECRET` | Client secret for the CI signing application |
+
+The stable workflow also requires these non-secret repository variables:
+
+| Variable | Value |
+| --- | --- |
+| `AZURE_SIGNING_ENDPOINT` | Regional Artifact Signing endpoint, currently `https://wus2.codesigning.azure.net/` |
+| `AZURE_SIGNING_ACCOUNT_NAME` | Artifact Signing account name, currently `onemorebuildsigning` |
+| `AZURE_SIGNING_CERTIFICATE_PROFILE_NAME` | Public Trust certificate profile used for Lane releases |
+| `AZURE_SIGNING_PUBLISHER_NAME` | Exact simple name displayed by the profile's signing certificate |
 
 The workflow writes the API key to a permission-restricted temporary file only
-for notarization, removes it when the build step exits, and never uploads the
-key or signing certificate as an artifact. The public release job receives only
-already verified DMG, ZIP, ZIP blockmaps, update metadata, and checksums.
+for notarization, removes it when the build step exits, and never uploads an API
+key or signing certificate as an artifact. Signing credentials are scoped only
+to the platform-specific signing steps. The public release job receives only
+already verified installers, archives, blockmaps, update metadata, and checksums.
 
 Verify a release candidate with:
 
@@ -156,17 +175,53 @@ Apple guidance:
 
 ## Windows distribution
 
+For a local unsigned preview on Windows:
+
+```powershell
+npm ci
+npm run check
+npm run package:win
+npm run e2e:nsis:win
+```
+
+The package command downloads a checksum-pinned Go build toolchain, builds the
+minimal Native Messaging host for x64 and ARM64, and generates one
+dual-architecture NSIS installer with a stable updater-safe filename. The E2E
+command installs it into a fresh temporary directory, confirms NSIS selected
+the runner's native architecture, runs the packaged-product and Native
+Messaging journeys, uninstalls Lane, and removes the temporary directory.
+
 Run the NSIS installer on clean x64 and arm64 Windows hosts before making a
 Windows runtime claim. Test install, launch, secure storage, loopback binding,
-CLI/control behavior, upgrade, uninstall, and rollback.
+CLI/control behavior, Chrome registration, Transly connection, upgrade,
+uninstall cleanup, and rollback.
 
 Sign the application binaries and installer with a certificate trusted by
 Windows. A self-signed certificate is for local testing only and does not make a
 public download trustworthy.
 
+Stable Windows builds use `npm run package:win:release` and Azure Artifact
+Signing. The release workflow compiles the updater marker before credentials
+enter scope, signs both native payloads and the NSIS installer, and verifies
+that every Lane executable has a valid Authenticode chain, the expected
+publisher name, and a trusted timestamp. Publisher verification is used instead
+of a certificate thumbprint because Artifact Signing issues and rotates
+short-lived certificates. The workflow then runs the installed product suite on
+native x64 and ARM64 runners. It publishes the installer, installer blockmap,
+`latest.yml`, and `SHA256SUMS-windows` only after both runners pass. The Windows
+client checks the same public GitHub Release feed as macOS and asks the user
+before downloading.
+
+The Artifact Signing private key remains in Microsoft's managed HSM and is not
+exported as a PFX. Grant the CI service principal only the `Artifact Signing
+Certificate Profile Signer` role at the Lane certificate-profile scope. The
+same signing account and validated identity may host separate certificate
+profiles for other Windows apps.
+
 Microsoft guidance:
 
 - [Code signing options for Windows app developers](https://learn.microsoft.com/windows/apps/package-and-deploy/code-signing-options)
+- [Integrate Artifact Signing with electron-builder](https://learn.microsoft.com/azure/artifact-signing/how-to-signing-integrations)
 
 ## Release candidate checks
 
@@ -178,6 +233,8 @@ npm audit
 npm run check
 npm run package:mac:arm64
 LANE_E2E_ARCH=arm64 npm run e2e:dmg:mac
+npm run package:win
+npm run e2e:nsis:win
 ```
 
 Then verify:
