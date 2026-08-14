@@ -171,6 +171,10 @@ if (
 }
 for (const option of [
   "azureSignOptions",
+  "afterPack",
+  "signIf",
+  "lane-cli.exe",
+  "lane-native-host.exe",
   "AZURE_SIGNING_PUBLISHER_NAME",
   "AZURE_SIGNING_ENDPOINT",
   "AZURE_SIGNING_CERTIFICATE_PROFILE_NAME",
