@@ -56,37 +56,29 @@ function requireSuccess(result, label) {
 function assertNoExistingLaneInstallation(environment) {
   const systemRoot = environment.SystemRoot ?? environment.WINDIR;
   if (!systemRoot) throw new Error("SystemRoot is required for Windows installed E2E");
-  const powershell = join(
-    systemRoot,
-    "System32",
-    "WindowsPowerShell",
-    "v1.0",
-    "powershell.exe",
-  );
-  const command = [
-    "$paths = @(",
-    "  'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',",
-    "  'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',",
-    "  'HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'",
-    ");",
-    "$matches = Get-ItemProperty $paths -ErrorAction SilentlyContinue |",
-    "  Where-Object { $_.DisplayName -eq 'Lane' };",
-    "if ($matches) {",
-    "  $matches | ForEach-Object { Write-Output $_.UninstallString };",
-    "  exit 20;",
-    "}",
-  ].join("\n");
-  const checked = spawnSync(
-    powershell,
-    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
-    { encoding: "utf8", env: environment, timeout: 30_000, windowsHide: true },
-  );
-  if (checked.status === 20) {
-    throw new Error(
-      `Refusing to run installed E2E while Lane is already installed:\n${checked.stdout}`,
-    );
+  const reg = join(systemRoot, "System32", "reg.exe");
+  const uninstallRoots = [
+    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+  ];
+  const laneDisplayName = /^\s*DisplayName\s+REG_\w+\s+Lane(?:\s+\d+(?:\.\d+)*)?\s*$/im;
+
+  for (const root of uninstallRoots) {
+    const checked = spawnSync(reg, ["query", root, "/s", "/v", "DisplayName"], {
+      encoding: "utf8",
+      env: environment,
+      timeout: 30_000,
+      windowsHide: true,
+    });
+    if (checked.error) throw checked.error;
+    if (checked.status !== 0 && checked.status !== 1) {
+      requireSuccess(checked, `Existing Lane installation check for ${root}`);
+    }
+    if (laneDisplayName.test(checked.stdout ?? "")) {
+      throw new Error(`Refusing to run installed E2E while Lane is already installed in ${root}`);
+    }
   }
-  requireSuccess(checked, "Existing Lane installation check");
 }
 
 async function peArchitecture(path) {

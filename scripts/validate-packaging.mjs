@@ -159,6 +159,9 @@ if (
 if (!pkg.scripts?.["e2e:nsis:win"]) {
   failures.push("missing installed Windows NSIS product E2E command");
 }
+if (!nsisE2E.includes('"reg.exe"') || nsisE2E.includes('"powershell.exe"')) {
+  failures.push("Windows NSIS E2E must inspect installed products without PowerShell startup");
+}
 if (
   !windowsSignatureVerification.includes("Get-AuthenticodeSignature") ||
   !windowsSignatureVerification.includes("AZURE_SIGNING_PUBLISHER_NAME") ||
