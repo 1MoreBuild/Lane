@@ -993,6 +993,96 @@ test.describe("Lane packaged product journeys", () => {
     );
   });
 
+  test("repairs an unreadable provider credential without duplicating the provider", async (
+    { browserName: _browserName },
+    testInfo,
+  ) => {
+    let page = context.session!.page;
+    await connectMockProvider(page, context.upstream);
+    await closeLane(context, testInfo, false);
+
+    const settings = JSON.parse(
+      await readFile(join(context.userData, "settings.json"), "utf8"),
+    ) as { providers: Array<{ id: string }> };
+    expect(settings.providers).toHaveLength(1);
+    const providerId = settings.providers[0]!.id;
+    const secretsPath = join(context.userData, "secrets.json");
+    const secrets = JSON.parse(await readFile(secretsPath, "utf8")) as Record<
+      string,
+      string
+    >;
+    expect(secrets[`credential:${providerId}`]).toBeDefined();
+    secrets[`credential:${providerId}`] = Buffer.from("invalid-e2e-ciphertext").toString(
+      "base64",
+    );
+    await writeFile(secretsPath, `${JSON.stringify(secrets, null, 2)}\n`, {
+      mode: 0o600,
+    });
+
+    ({ page } = await launchLane(context, testInfo));
+    await expect(page.getByText("Needs reconnection")).toBeVisible();
+    await page.getByRole("button", { name: "Reconnect" }).click();
+    const dialog = page.getByRole("dialog", { name: "Reconnect Mock" });
+    await expect(dialog.getByLabel("Display name")).toHaveValue("Mock");
+    await expect(dialog.getByLabel("Base URL")).toHaveValue(context.upstream.baseUrl);
+    await page.keyboard.press("Escape");
+
+    const cli = cliExecutable();
+    const beforeRepair = await runPackagedProcess(
+      context,
+      cli.executable,
+      ["providers", "list", "--json", "--no-input"],
+      undefined,
+      cli.env,
+    );
+    expect(beforeRepair.code, beforeRepair.stderr).toBe(0);
+    expect(JSON.parse(beforeRepair.stdout.toString("utf8"))).toEqual([
+      expect.objectContaining({
+        id: providerId,
+        connected: false,
+        needs_reconnection: true,
+      }),
+    ]);
+
+    const repair = await runPackagedProcess(
+      context,
+      cli.executable,
+      [
+        "providers",
+        "add",
+        "--kind",
+        "custom-openai",
+        "--id",
+        providerId,
+        "--api-key-stdin",
+        "--json",
+        "--no-input",
+      ],
+      Buffer.from("replacement-mock-key\n"),
+      cli.env,
+    );
+    expect(repair.code, repair.stderr).toBe(0);
+    expect(JSON.parse(repair.stdout.toString("utf8"))).toMatchObject({
+      providers: [
+        {
+          id: providerId,
+          connected: true,
+          needs_reconnection: false,
+        },
+      ],
+    });
+
+    await page.reload();
+    await expect(page.getByText("Connected · 2 models")).toBeVisible();
+    await expect(page.getByText("Needs reconnection")).toHaveCount(0);
+    await expect(page.getByText("Mock", { exact: true })).toHaveCount(1);
+    const persisted = JSON.parse(
+      await readFile(join(context.userData, "settings.json"), "utf8"),
+    ) as { providers: Array<{ id: string }> };
+    expect(persisted.providers).toHaveLength(1);
+    expect(persisted.providers[0]?.id).toBe(providerId);
+  });
+
   test("changes ports only after explicit confirmation when the port is occupied", async () => {
     const occupied = createNetServer();
     await new Promise<void>((resolveListen, reject) => {

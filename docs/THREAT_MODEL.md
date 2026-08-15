@@ -39,8 +39,9 @@ macOS development builds use a separate `safeStorage` identity from public
 builds. A signed release does not read Keychain material left by an older
 ad-hoc build, because doing so produces a misleading system password prompt.
 Public settings survive that boundary, while providers must be reconnected
-once. If secure storage is locked or access is denied, Lane opens without
-provider credentials and shows recovery guidance instead of terminating.
+once. Lane marks only the affected provider for reconnection. If secure storage
+is locked or access is denied, Lane opens without provider credentials and shows
+recovery guidance instead of terminating.
 
 Packaged E2E runs use an isolated AES-GCM backend so unsigned automation never
 prompts for or opens a user's Keychain. That backend is accepted only when the
@@ -156,6 +157,10 @@ build marker. Development, E2E, local packages, and unsigned prereleases do
 not check for updates. The client never embeds a GitHub token. The user starts
 the download from Lane's update control; progress is shown in place, and the
 signed update installs and restarts Lane when the download completes.
+On macOS, the install window blocks new Lane CLI and Native Messaging helpers
+and stops only processes whose command exactly matches the current Lane app
+executable. It never invokes a shell, matches a process-name wildcard, or
+terminates an unrelated port owner.
 
 The release workflow refuses to publish unless macOS signing/notarization and
 Azure Artifact Signing credentials are present. It verifies the expected signing

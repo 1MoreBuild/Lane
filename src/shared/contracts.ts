@@ -50,7 +50,9 @@ export interface ProviderStatus {
   kind: ProviderKind;
   name: string;
   connected: boolean;
+  needsReconnection?: boolean;
   authType?: "api_key" | "oauth";
+  baseUrl?: string;
   models: string[];
   error?: string;
 }
@@ -72,7 +74,6 @@ export interface LaneState {
   };
   credentialStorage: {
     available: boolean;
-    notice?: string;
     error?: string;
   };
   providers: ProviderStatus[];
@@ -169,6 +170,7 @@ export interface LogEntry {
 }
 
 export interface AddProviderInput {
+  providerId?: string;
   kind: Exclude<ProviderKind, "openai-codex">;
   name?: string;
   apiKey: string;

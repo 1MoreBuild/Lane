@@ -42,7 +42,6 @@ describe("security boundaries", () => {
         e2e: false,
         platform: "darwin",
         legacy: { found: true },
-        newProfileExists: false,
       }),
     ).toMatchObject({
       appName: "Lane Development",
@@ -55,12 +54,10 @@ describe("security boundaries", () => {
         e2e: false,
         platform: "darwin",
         legacy: { found: true, createdAt: Date.parse("2026-07-28T23:08:59Z") },
-        newProfileExists: false,
       }),
     ).toMatchObject({
       appName: "Lane",
       secretsFile: "secrets-v2.json",
-      notice: expect.stringMatching(/Reconnect providers/),
     });
     expect(
       resolveSafeStorageProfile({
@@ -69,19 +66,8 @@ describe("security boundaries", () => {
         e2e: false,
         platform: "darwin",
         legacy: { found: true, createdAt: Date.parse("2026-08-10T00:00:00Z") },
-        newProfileExists: false,
       }),
     ).toEqual({ secretsFile: "secrets.json" });
-    expect(
-      resolveSafeStorageProfile({
-        releaseBuild: true,
-        packaged: true,
-        e2e: false,
-        platform: "darwin",
-        legacy: { found: true, createdAt: Date.parse("2026-07-28T23:08:59Z") },
-        newProfileExists: true,
-      }),
-    ).toEqual({ appName: "Lane", secretsFile: "secrets-v2.json" });
   });
 
   it("keeps the listener host fixed to IPv4 loopback", () => {

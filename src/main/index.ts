@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -59,6 +59,11 @@ import {
   resolveSafeStorageProfile,
 } from "./safe-storage-profile.ts";
 import { SecretStore } from "./secret-store.ts";
+import {
+  clearUpdateInstallPending,
+  isUpdateInstallPending,
+  prepareForUpdateInstall,
+} from "./update-install-guard.ts";
 import { WindowsTrayClickController } from "./windows-tray-click.ts";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -75,17 +80,31 @@ if (e2eUserData) {
   app.setPath("userData", resolvedUserData);
 }
 const originalUserData = app.getPath("userData");
-const safeStorageProfile = resolveSafeStorageProfile({
-  releaseBuild,
-  packaged: app.isPackaged,
-  e2e: e2eMode,
-  platform: process.platform,
-  legacy:
-    releaseBuild && app.isPackaged && !e2eMode
-      ? readLegacyKeychainRecord()
-      : { found: false },
-  newProfileExists: existsSync(join(originalUserData, "secrets-v2.json")),
-});
+const updateInstallMarkerPath = join(originalUserData, "update-in-progress");
+const args = cliArguments();
+const nativeCallerOrigin = args.find((arg) => arg.startsWith("chrome-extension://"));
+const invokedThroughLauncher =
+  resolve(process.argv0) !== resolve(process.execPath) &&
+  basename(process.argv0).toLowerCase() === "lane";
+const cliMode =
+  process.env.LANE_BE_CLI === "1" ||
+  invokedThroughLauncher ||
+  isLaneCliInvocation(args);
+const auxiliaryStartBlocked =
+  (nativeCallerOrigin !== undefined || cliMode) &&
+  isUpdateInstallPending(updateInstallMarkerPath);
+const safeStorageProfile = auxiliaryStartBlocked
+  ? { secretsFile: "secrets-v2.json" }
+  : resolveSafeStorageProfile({
+      releaseBuild,
+      packaged: app.isPackaged,
+      e2e: e2eMode,
+      platform: process.platform,
+      legacy:
+        releaseBuild && app.isPackaged && !e2eMode
+          ? readLegacyKeychainRecord()
+          : { found: false },
+    });
 if (safeStorageProfile.appName) {
   app.setName(safeStorageProfile.appName);
   // Changing the Keychain identity must not move public settings or logs.
@@ -347,10 +366,15 @@ function validateProviderInput(value: unknown): AddProviderInput {
     throw new Error("Unsupported provider type");
   }
   if (typeof input.apiKey !== "string" || !input.apiKey.trim()) throw new Error("API key is required");
-  if (input.kind === "custom-openai" && (typeof input.baseUrl !== "string" || !input.baseUrl)) {
+  if (
+    input.kind === "custom-openai" &&
+    typeof input.providerId !== "string" &&
+    (typeof input.baseUrl !== "string" || !input.baseUrl)
+  ) {
     throw new Error("Custom endpoint is required");
   }
   return {
+    ...(typeof input.providerId === "string" ? { providerId: input.providerId } : {}),
     kind: input.kind as AddProviderInput["kind"],
     apiKey: input.apiKey,
     ...(typeof input.name === "string" ? { name: input.name } : {}),
@@ -364,6 +388,7 @@ function publicProviders(state: LaneState): unknown[] {
     kind: provider.kind,
     name: provider.name,
     connected: provider.connected,
+    needs_reconnection: provider.needsReconnection === true,
     auth_type: provider.authType ?? null,
     models: provider.models,
     ...(provider.error ? { error: provider.error } : {}),
@@ -871,6 +896,17 @@ function startAutomaticUpdates(logger: LaneLogger): void {
     logger,
     onStateChanged: sendUpdateState,
     prepareToInstall: async () => {
+      const stoppedProcesses = await prepareForUpdateInstall({
+        markerPath: updateInstallMarkerPath,
+        executablePath: process.execPath,
+        currentPid: process.pid,
+        platform: process.platform,
+      });
+      if (stoppedProcesses.length > 0) {
+        logger.info(
+          `Updater: stopped ${stoppedProcesses.length} auxiliary Lane process${stoppedProcesses.length === 1 ? "" : "es"}`,
+        );
+      }
       quitting = true;
       oauth?.cancel();
       await shutdownServices();
@@ -901,9 +937,6 @@ async function boot(): Promise<void> {
     secretStore,
     credentials,
     logger,
-    ...(safeStorageProfile.notice
-      ? { credentialStorageNotice: safeStorageProfile.notice }
-      : {}),
     setLaunchAtLogin: (enabled) =>
       app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true }),
     setDockIconVisible,
@@ -988,22 +1021,15 @@ async function wakeLaneApp(): Promise<void> {
   });
 }
 
-const args = cliArguments();
-const nativeCallerOrigin = args.find((arg) => arg.startsWith("chrome-extension://"));
-const invokedThroughLauncher =
-  resolve(process.argv0) !== resolve(process.execPath) &&
-  basename(process.argv0).toLowerCase() === "lane";
-const cliMode =
-  process.env.LANE_BE_CLI === "1" ||
-  invokedThroughLauncher ||
-  isLaneCliInvocation(args);
-
 if (cliMode) {
   if (process.platform === "darwin") app.setActivationPolicy("accessory");
   installCliOutputErrorHandlers(() => app.exit(0));
 }
 
-if (nativeCallerOrigin) {
+if (auxiliaryStartBlocked) {
+  console.error("Lane is installing an update. Try again in a moment.");
+  app.exit(75);
+} else if (nativeCallerOrigin) {
   app
     .whenReady()
     .then(async () => {
@@ -1067,6 +1093,9 @@ if (nativeCallerOrigin) {
   if (!hasLock) {
     app.quit();
   } else {
+    // Only the primary main-app instance may end the install window. A second
+    // launch while the old version is quitting must not unblock new helpers.
+    clearUpdateInstallPending(updateInstallMarkerPath);
     app.on("second-instance", (_event, _argv, _workingDirectory, additionalData) => {
       if ((additionalData as { cliWake?: boolean } | undefined)?.cliWake !== true) {
         showMainWindow();

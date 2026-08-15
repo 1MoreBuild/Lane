@@ -44,7 +44,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -528,6 +527,7 @@ function App(): ReactNode {
   const [activeView, setActiveView] = useState<AppView>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [providerDialogOpen, setProviderDialogOpen] = useState(false);
+  const [reconnectTarget, setReconnectTarget] = useState<ProviderStatus | null>(null);
   const [providerKind, setProviderKind] = useState<ProviderKind>("openai-codex");
   const [providerName, setProviderName] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -610,7 +610,9 @@ function App(): ReactNode {
     );
   }
 
-  const oauthConnected = state.providers.some((provider) => provider.kind === "openai-codex");
+  const oauthConnected = state.providers.some(
+    (provider) => provider.kind === "openai-codex" && provider.connected,
+  );
   const apiBaseUrl = getLaneApiBaseUrl(state.gateway.endpoint);
   const selectedModel = state.models.find((model) => model.id === state.defaultModel);
   const selectedModelProvider = state.providers.find(
@@ -753,14 +755,30 @@ function App(): ReactNode {
     setOAuthCode("");
   }
 
+  function openAddProvider(): void {
+    resetProviderForm();
+    setReconnectTarget(null);
+    setProviderKind(oauthConnected ? "openai" : "openai-codex");
+    setProviderDialogOpen(true);
+  }
+
+  function openReconnectProvider(provider: ProviderStatus): void {
+    resetProviderForm();
+    setReconnectTarget(provider);
+    setProviderKind(provider.kind);
+    setProviderName(provider.name);
+    setBaseUrl(provider.baseUrl ?? "");
+    setProviderDialogOpen(true);
+  }
+
   function changeProviderDialog(open: boolean): void {
     if (!open && providerBusy && providerKind === "openai-codex") {
       void window.lane.cancelOAuth();
     }
     setProviderDialogOpen(open);
-    if (open) {
+    if (!open) {
       resetProviderForm();
-      setProviderKind(oauthConnected ? "openai" : "openai-codex");
+      setReconnectTarget(null);
     }
   }
 
@@ -770,6 +788,7 @@ function App(): ReactNode {
     setProviderError("");
     try {
       const input: AddProviderInput = {
+        ...(reconnectTarget ? { providerId: reconnectTarget.id } : {}),
         kind: providerKind as AddProviderInput["kind"],
         apiKey,
         ...(providerName.trim() ? { name: providerName.trim() } : {}),
@@ -779,6 +798,7 @@ function App(): ReactNode {
       };
       setState(await window.lane.addProvider(input));
       resetProviderForm();
+      setReconnectTarget(null);
       setProviderDialogOpen(false);
     } catch (error) {
       setProviderError(getErrorMessage(error));
@@ -794,6 +814,7 @@ function App(): ReactNode {
     try {
       setState(await window.lane.startOAuth());
       resetProviderForm();
+      setReconnectTarget(null);
       setProviderDialogOpen(false);
     } catch (error) {
       setProviderError(getErrorMessage(error));
@@ -1221,16 +1242,9 @@ function App(): ReactNode {
                   {state.gateway.error || loadError}
                 </p>
               )}
-              {(state.credentialStorage.error || state.credentialStorage.notice) && (
-                <p
-                  className={cn(
-                    "lane-body mt-3 rounded-lg p-3",
-                    state.credentialStorage.error
-                      ? "bg-destructive/10 text-destructive"
-                      : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {state.credentialStorage.error || state.credentialStorage.notice}
+              {state.credentialStorage.error && (
+                <p className="lane-body mt-3 rounded-lg bg-destructive/10 p-3 text-destructive">
+                  {state.credentialStorage.error}
                 </p>
               )}
             </section>
@@ -1243,19 +1257,22 @@ function App(): ReactNode {
               <div className="lane-section-heading">
                 <h2 className="lane-section-title">Connections</h2>
                 <Dialog open={providerDialogOpen} onOpenChange={changeProviderDialog}>
-                  <DialogTrigger render={<Button size="sm" variant="outline" />}>
+                  <Button onClick={openAddProvider} size="sm" variant="outline">
                     <Plus data-icon="inline-start" />
                     Add provider
-                  </DialogTrigger>
+                  </Button>
                   <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
-                      <DialogTitle>Add provider</DialogTitle>
+                      <DialogTitle>
+                        {reconnectTarget ? `Reconnect ${reconnectTarget.name}` : "Add provider"}
+                      </DialogTitle>
                     </DialogHeader>
 
                     <div className="grid gap-5">
                       <label>
                         <FieldLabel>Provider</FieldLabel>
                         <Select
+                          disabled={reconnectTarget !== null}
                           value={providerKind}
                           onValueChange={(value) => {
                             if (value) {
@@ -1449,10 +1466,28 @@ function App(): ReactNode {
                         <div className="min-w-0 flex-1">
                           <p className="lane-value truncate">{provider.name}</p>
                           <p className="lane-meta mt-0.5 flex items-center gap-1.5 text-muted-foreground">
-                            <span className="size-1.5 rounded-full bg-emerald-500" />
-                            Connected · {modelCount} {modelCount === 1 ? "model" : "models"}
+                            <span
+                              className={cn(
+                                "size-1.5 rounded-full",
+                                provider.connected ? "bg-emerald-500" : "bg-amber-500",
+                              )}
+                            />
+                            {provider.connected
+                              ? `Connected · ${modelCount} ${modelCount === 1 ? "model" : "models"}`
+                              : provider.needsReconnection
+                                ? "Needs reconnection"
+                                : provider.error || "Unavailable"}
                           </p>
                         </div>
+                        {provider.needsReconnection && (
+                          <Button
+                            onClick={() => openReconnectProvider(provider)}
+                            size="sm"
+                            variant="outline"
+                          >
+                            Reconnect
+                          </Button>
+                        )}
                         <IconAction
                           destructive
                           label={`Remove ${provider.name}`}

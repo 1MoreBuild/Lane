@@ -17,7 +17,12 @@ export class SecureCredentialStore implements CredentialStore {
   async read(providerId: string): Promise<Credential | undefined> {
     const value = await this.secrets.get(this.key(providerId));
     if (!value) return undefined;
-    const parsed: unknown = JSON.parse(value);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new Error("Invalid stored credential");
+    }
     if (!parsed || typeof parsed !== "object") throw new Error("Invalid stored credential");
     const type = (parsed as { type?: unknown }).type;
     if (type !== "api_key" && type !== "oauth") throw new Error("Invalid credential type");
@@ -51,6 +56,21 @@ export class SecureCredentialStore implements CredentialStore {
     this.chains.set(providerId, next);
     try {
       return await next;
+    } finally {
+      if (this.chains.get(providerId) === next) this.chains.delete(providerId);
+    }
+  }
+
+  async replace(providerId: string, credential: Credential): Promise<void> {
+    const previous = this.chains.get(providerId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(() =>
+        this.secrets.set(this.key(providerId), JSON.stringify(credential)),
+      );
+    this.chains.set(providerId, next);
+    try {
+      await next;
     } finally {
       if (this.chains.get(providerId) === next) this.chains.delete(providerId);
     }

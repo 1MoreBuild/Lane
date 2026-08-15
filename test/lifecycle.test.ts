@@ -37,6 +37,84 @@ describe("persistence and lifecycle", () => {
     });
   });
 
+  it("marks only providers with missing credentials for reconnection", async () => {
+    const shared = await stores();
+    const app = new AppCore({ ...shared, discover });
+    await app.initialize();
+    let state = await app.addProvider({
+      kind: "custom-openai",
+      name: "Local mock",
+      apiKey: "first-secret",
+      baseUrl: "http://127.0.0.1:9999/v1",
+    });
+    const provider = state.providers[0]!;
+    await shared.credentials.delete(provider.id);
+
+    state = await app.getState();
+    expect(state.credentialStorage).toEqual({ available: true });
+    expect(state.providers[0]).toMatchObject({
+      id: provider.id,
+      connected: false,
+      needsReconnection: true,
+    });
+
+    state = await app.addProvider({
+      providerId: provider.id,
+      kind: "custom-openai",
+      apiKey: "replacement-secret",
+      baseUrl: "http://127.0.0.1:9999/v1",
+    });
+    expect(state.providers).toHaveLength(1);
+    expect(state.providers[0]).toMatchObject({
+      id: provider.id,
+      name: "Local mock",
+      connected: true,
+    });
+    expect(state.providers[0]?.needsReconnection).toBeUndefined();
+    await app.shutdown();
+  });
+
+  it("repairs a provider with an unreadable stored credential", async () => {
+    const shared = await stores();
+    const app = new AppCore({ ...shared, discover });
+    await app.initialize();
+    let state = await app.addProvider({
+      kind: "custom-openai",
+      name: "Local mock",
+      apiKey: "first-secret",
+      baseUrl: "http://127.0.0.1:9999/v1",
+    });
+    const provider = state.providers[0]!;
+    await shared.secretStore.set(`credential:${provider.id}`, "not-json");
+
+    state = await app.getState();
+    expect(state.providers[0]).toMatchObject({
+      id: provider.id,
+      connected: false,
+      needsReconnection: true,
+      baseUrl: "http://127.0.0.1:9999/v1",
+      error: "Invalid stored credential",
+    });
+
+    state = await app.addProvider({
+      providerId: provider.id,
+      kind: "custom-openai",
+      apiKey: "replacement-secret",
+      baseUrl: "http://127.0.0.1:9999/v1",
+    });
+    expect(state.providers).toHaveLength(1);
+    expect(state.providers[0]).toMatchObject({
+      id: provider.id,
+      name: "Local mock",
+      connected: true,
+    });
+    expect(await shared.credentials.read(provider.id)).toEqual({
+      type: "api_key",
+      key: "replacement-secret",
+    });
+    await app.shutdown();
+  });
+
   it("opens with an ephemeral client key when secure storage is denied", async () => {
     const settingsPath = await tempPath("denied-settings.json");
     const secretsPath = settingsPath.replace("settings.json", "secrets.json");
