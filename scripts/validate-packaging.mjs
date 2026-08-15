@@ -168,6 +168,9 @@ if (!nsisE2E.includes('stdio: "ignore"') || !nsisE2E.includes("timeout: 300_000"
 if (!nsisE2E.includes('setTimeout as delay') || !nsisE2E.includes('"EBUSY"')) {
   failures.push("Windows NSIS E2E must wait for the asynchronous uninstaller to release files");
 }
+if (!nsisE2E.includes('`_?=${installedDirectory}`')) {
+  failures.push("Windows NSIS E2E must wait for the real uninstaller process");
+}
 if (
   !windowsSignatureVerification.includes("Get-AuthenticodeSignature") ||
   !windowsSignatureVerification.includes("AZURE_SIGNING_PUBLISHER_NAME") ||
