@@ -254,6 +254,12 @@ function cliExecutable(): { executable: string; env: NodeJS.ProcessEnv } {
       env: {},
     };
   }
+  if (process.platform === "win32") {
+    return {
+      executable: resolve(dirname(appExecutable), "resources/bin/lane-cli.exe"),
+      env: {},
+    };
+  }
   return {
     executable: appExecutable,
     env: { LANE_BE_CLI: "1" },
