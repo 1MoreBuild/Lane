@@ -14,6 +14,7 @@ interface UpdateInstallOptions {
   markerPath: string;
   executablePath: string;
   currentPid: number;
+  currentUserId?: number;
   platform: NodeJS.Platform;
   listProcesses?: () => Promise<string>;
   killProcess?: (pid: number, signal: NodeJS.Signals) => void;
@@ -64,6 +65,7 @@ export function findAuxiliaryLaneProcessIds(
   processTable: string,
   executablePath: string,
   currentPid: number,
+  currentUserId: number,
   canonicalizeExecutable: (path: string) => string = realpathSync,
 ): number[] {
   const matches: number[] = [];
@@ -72,10 +74,12 @@ export function findAuxiliaryLaneProcessIds(
   );
   const executableSuffix = `/${executableBasename}`;
   for (const line of processTable.split("\n")) {
-    const parsed = line.trim().match(/^(\d+)\s+(.+)$/);
+    const parsed = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
     if (!parsed) continue;
-    const pid = Number(parsed[1]);
-    const command = parsed[2]!;
+    const userId = Number(parsed[1]);
+    const pid = Number(parsed[2]);
+    const command = parsed[3]!;
+    if (userId !== currentUserId) continue;
     if (pid === currentPid) continue;
     if (command === executablePath || command.startsWith(`${executablePath} `)) {
       matches.push(pid);
@@ -105,7 +109,10 @@ export function findAuxiliaryLaneProcessIds(
 }
 
 async function defaultListProcesses(): Promise<string> {
-  const { stdout } = await execFileAsync("/bin/ps", ["-axo", "pid=,command="]);
+  const { stdout } = await execFileAsync("/bin/ps", [
+    "-axo",
+    "uid=,pid=,command=",
+  ]);
   return stdout;
 }
 
@@ -134,6 +141,12 @@ export async function prepareForUpdateInstall(
   );
   if (options.platform !== "darwin") return [];
 
+  const currentUserId = options.currentUserId ?? process.getuid?.();
+  if (currentUserId === undefined) {
+    removeMarker(options.markerPath);
+    throw new Error("Cannot determine the current user for update installation");
+  }
+
   const listProcesses = options.listProcesses ?? defaultListProcesses;
   const killProcess = options.killProcess ?? process.kill.bind(process);
   const wait =
@@ -145,6 +158,7 @@ export async function prepareForUpdateInstall(
       await listProcesses(),
       options.executablePath,
       options.currentPid,
+      currentUserId,
       options.canonicalizeExecutable,
     );
     signal(initial, "SIGTERM", killProcess);
@@ -154,6 +168,7 @@ export async function prepareForUpdateInstall(
       await listProcesses(),
       options.executablePath,
       options.currentPid,
+      currentUserId,
       options.canonicalizeExecutable,
     );
     signal(remaining, "SIGKILL", killProcess);

@@ -58,6 +58,25 @@ describe("Lane CLI", () => {
     }
   });
 
+  it("accepts the Windows launcher's TMP directory when TEMP differs", async () => {
+    const tempDirectory = await mkdtemp(join(tmpdir(), "lane-cli-temp-test-"));
+    const tmpDirectory = await mkdtemp(join(tmpdir(), "lane-cli-tmp-test-"));
+    try {
+      const path = join(tmpDirectory, "lane-cli-stdin-secret");
+      await writeFile(path, "provider-secret\n", { mode: 0o600 });
+
+      await expect(
+        readBridgedCliStdin(path, [tempDirectory, tmpDirectory]),
+      ).resolves.toBe("provider-secret\n");
+      await expect(readFile(path, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await Promise.all([
+        rm(tempDirectory, { force: true, recursive: true }),
+        rm(tmpDirectory, { force: true, recursive: true }),
+      ]);
+    }
+  });
+
   it("rejects stdin bridge paths outside the launcher temp directory", async () => {
     await expect(
       readBridgedCliStdin("/tmp/not-a-lane-bridge", "/tmp"),

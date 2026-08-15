@@ -29,14 +29,18 @@ describe("update install guard", () => {
   it("finds only other processes launched from the exact Lane executable", () => {
     const executable = "/Applications/Lane.app/Contents/MacOS/Lane";
     const output = [
-      `100 ${executable}`,
-      `101 ${executable} models --json`,
-      `102 ${executable} chrome-extension://approved`,
-      `103 ${executable}.backup models`,
-      "104 /Applications/Lane.app/Contents/Frameworks/Lane Helper.app/Contents/MacOS/Lane Helper",
+      `501 100 ${executable}`,
+      `501 101 ${executable} models --json`,
+      `501 102 ${executable} chrome-extension://approved`,
+      `501 103 ${executable}.backup models`,
+      "501 104 /Applications/Lane.app/Contents/Frameworks/Lane Helper.app/Contents/MacOS/Lane Helper",
+      `502 105 ${executable} models --json`,
     ].join("\n");
 
-    expect(findAuxiliaryLaneProcessIds(output, executable, 100)).toEqual([101, 102]);
+    expect(findAuxiliaryLaneProcessIds(output, executable, 100, 501)).toEqual([
+      101,
+      102,
+    ]);
   });
 
   it("canonicalizes the packaged launcher's lexical executable path", () => {
@@ -47,7 +51,13 @@ describe("update install guard", () => {
       path.replace("/Contents/Resources/../MacOS/", "/Contents/MacOS/");
 
     expect(
-      findAuxiliaryLaneProcessIds(`101 ${launched}`, executable, 100, canonicalize),
+      findAuxiliaryLaneProcessIds(
+        `501 101 ${launched}`,
+        executable,
+        100,
+        501,
+        canonicalize,
+      ),
     ).toEqual([101]);
   });
 
@@ -55,8 +65,8 @@ describe("update install guard", () => {
     const marker = await markerPath();
     const executable = "/Applications/Lane.app/Contents/MacOS/Lane";
     const processTables = [
-      `100 ${executable}\n101 ${executable} models\n102 ${executable} chrome-extension://approved`,
-      `100 ${executable}\n102 ${executable} chrome-extension://approved`,
+      `501 100 ${executable}\n501 101 ${executable} models\n501 102 ${executable} chrome-extension://approved`,
+      `501 100 ${executable}\n501 102 ${executable} chrome-extension://approved`,
     ];
     const kill = vi.fn();
 
@@ -64,6 +74,7 @@ describe("update install guard", () => {
       markerPath: marker,
       executablePath: executable,
       currentPid: 100,
+      currentUserId: 501,
       platform: "darwin",
       listProcesses: async () => processTables.shift() ?? `100 ${executable}`,
       killProcess: kill,
