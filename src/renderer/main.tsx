@@ -79,6 +79,7 @@ import type {
   GatewayCapture,
   GatewayTrace,
   LaneState,
+  LaneUpdateCheckResult,
   LaneUpdateState,
   LogEntry,
   ProviderKind,
@@ -514,6 +515,10 @@ function App(): ReactNode {
   const [updateState, setUpdateState] = useState<LaneUpdateState>({
     status: "idle",
   });
+  const [appVersion, setAppVersion] = useState("");
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateCheckResult, setUpdateCheckResult] =
+    useState<LaneUpdateCheckResult | null>(null);
   const [loadError, setLoadError] = useState("");
   const [gatewayBusy, setGatewayBusy] = useState(false);
   const [keyVisible, setKeyVisible] = useState(false);
@@ -541,7 +546,12 @@ function App(): ReactNode {
 
   useEffect(() => {
     const unsubscribeState = window.lane.onStateChanged(setState);
-    const unsubscribeUpdate = window.lane.onUpdateStateChanged(setUpdateState);
+    const unsubscribeUpdate = window.lane.onUpdateStateChanged((next) => {
+      setUpdateState(next);
+      if (next.status === "available") {
+        setUpdateCheckResult({ status: "available", version: next.version });
+      }
+    });
     const unsubscribeOAuth = window.lane.onOAuthEvent((event) => {
       if (event.type === "auth_url") {
         setOAuthStatus(event.instructions ?? "Finish signing in in your browser.");
@@ -558,6 +568,9 @@ function App(): ReactNode {
 
     window.lane.getState().then(setState).catch((error: unknown) => {
       setLoadError(getErrorMessage(error));
+    });
+    window.lane.getAppVersion().then(setAppVersion).catch(() => {
+      setAppVersion("Unknown");
     });
     window.lane.getUpdateState().then(setUpdateState).catch(() => {
       setUpdateState({ status: "idle" });
@@ -686,6 +699,49 @@ function App(): ReactNode {
       setCliBusy(false);
     }
   }
+
+  async function checkForUpdates(): Promise<void> {
+    setUpdateChecking(true);
+    try {
+      setUpdateCheckResult(await window.lane.checkForUpdates());
+    } catch {
+      setUpdateCheckResult({ status: "error" });
+    } finally {
+      setUpdateChecking(false);
+    }
+  }
+
+  const updateSummary = (() => {
+    if (updateState.status === "available") {
+      return `Version ${appVersion || "…"} · ${updateState.version} available`;
+    }
+    if (updateState.status === "downloading") {
+      return `Downloading ${updateState.version} · ${Math.round(updateState.percent)}%`;
+    }
+    if (updateChecking) return `Version ${appVersion || "…"} · Checking…`;
+    if (updateCheckResult?.status === "up-to-date") {
+      return `Version ${appVersion || "…"} · Up to date`;
+    }
+    if (updateCheckResult?.status === "error") {
+      return `Version ${appVersion || "…"} · Couldn’t check for updates`;
+    }
+    if (updateCheckResult?.status === "unavailable") {
+      return `Version ${appVersion || "…"} · Updates unavailable in this build`;
+    }
+    if (updateCheckResult?.status === "busy") {
+      return `Version ${appVersion || "…"} · Update check already in progress`;
+    }
+    return `Version ${appVersion || "…"}`;
+  })();
+
+  const updateActionLabel =
+    updateState.status === "available"
+      ? `Download ${updateState.version}`
+      : updateState.status === "downloading"
+        ? "Downloading…"
+        : updateChecking
+          ? "Checking…"
+          : "Check for updates";
 
   function resetProviderForm(): void {
     setProviderName("");
@@ -998,6 +1054,29 @@ function App(): ReactNode {
               {cliError}
             </p>
           )}
+        </div>
+
+        <div className="flex items-center justify-between gap-4 py-3">
+          <div className="min-w-0">
+            <p className="lane-value">About Lane</p>
+            <p className="lane-meta mt-0.5 text-muted-foreground">{updateSummary}</p>
+          </div>
+          <Button
+            disabled={updateChecking || updateState.status === "downloading"}
+            focusableWhenDisabled
+            onClick={() => {
+              if (updateState.status === "available") {
+                void window.lane.downloadUpdate();
+              } else {
+                void checkForUpdates();
+              }
+            }}
+            size="sm"
+            title={updateActionLabel}
+            variant="outline"
+          >
+            {updateActionLabel}
+          </Button>
         </div>
       </div>
 

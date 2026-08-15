@@ -101,11 +101,14 @@ available in Transly when Lane is not installed.
   Optional raw request/response capture is a separate, session-only payload on
   live trace entries. It is never serialized to those files.
 - `LaneAutoUpdate` uses `electron-updater` with the GitHub Releases provider.
-  Signed release builds check after startup and every 30 minutes. An available
-  update appears as a small window utility; clicking it replaces the icon with
-  download progress, then installs and restarts Lane. A build-time release
-  marker is set only by the signing workflow; development, E2E, local package,
-  and prerelease builds never contact the update feed. A completed
+  Signed release builds check after startup, when the main window is reopened
+  after a short minimum interval, every 30 minutes, or when the user checks from
+  About Lane in Settings. An
+  available update appears in both About Lane and a small window utility;
+  clicking either download control starts the download, then installs and
+  restarts Lane. A build-time release marker is set only by the signing workflow;
+  development, E2E, local package, and prerelease builds never contact the
+  update feed. A completed
   download also retains the standard install-on-quit fallback if the immediate
   relaunch is interrupted.
 - The protocol module maps both OpenAI Responses and Chat Completions onto the

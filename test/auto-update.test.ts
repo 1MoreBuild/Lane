@@ -286,4 +286,62 @@ describe("automatic updates", () => {
       version: "0.2.0",
     });
   });
+
+  it("shares an active update check with a concurrent manual request", async () => {
+    const fake = new FakeUpdater();
+    let finishCheck: (() => void) | undefined;
+    fake.checkForUpdates.mockImplementationOnce(
+      () =>
+        new Promise<null>((resolve) => {
+          finishCheck = () => {
+            fake.emit("update-not-available", { version: "0.1.10" });
+            resolve(null);
+          };
+        }),
+    );
+    const controller = new LaneAutoUpdate({
+      updater: updater(fake),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      onStateChanged: vi.fn(),
+      prepareToInstall: vi.fn(),
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    controller.start();
+
+    const automatic = controller.checkNow();
+    const manual = controller.checkNow();
+    await vi.waitFor(() => expect(fake.checkForUpdates).toHaveBeenCalledOnce());
+    finishCheck?.();
+
+    await expect(Promise.all([automatic, manual])).resolves.toEqual([
+      { status: "up-to-date" },
+      { status: "up-to-date" },
+    ]);
+  });
+
+  it("rate-limits automatic checks when the main window is reopened", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const fake = new FakeUpdater();
+    const controller = new LaneAutoUpdate({
+      updater: updater(fake),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      onStateChanged: vi.fn(),
+      prepareToInstall: vi.fn(),
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    controller.start();
+
+    controller.checkWhenStale();
+    await vi.waitFor(() => expect(fake.checkForUpdates).toHaveBeenCalledOnce());
+    controller.checkWhenStale();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(fake.checkForUpdates).toHaveBeenCalledOnce();
+
+    now.mockReturnValue(1_300_001);
+    controller.checkWhenStale();
+    await vi.waitFor(() => expect(fake.checkForUpdates).toHaveBeenCalledTimes(2));
+    now.mockRestore();
+  });
 });

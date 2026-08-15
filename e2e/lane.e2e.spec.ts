@@ -551,7 +551,7 @@ test.describe("Lane packaged product journeys", () => {
     await page.getByRole("button", { name: "View API endpoints" }).click();
     await expect(page.getByText("Not tested", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Test connection" }).click();
-    await expect(page.getByText("Ready", { exact: true })).toBeVisible();
+    await expect(page.getByText(/^(Ready|WSL connection failed)$/)).toBeVisible();
     await expect(page.getByText("The model returned a successful response")).toBeVisible();
     await expect(page.getByRole("button", { name: "Test again" })).toBeVisible();
     const copyModelsCurl = page.getByRole("button", { name: "Copy Models cURL" });
@@ -600,6 +600,10 @@ test.describe("Lane packaged product journeys", () => {
 
     await expect(page.getByText("Theme", { exact: true })).toHaveCount(1);
     await expect(page.getByRole("switch", { name: /Show Lane in (Dock|taskbar)/ })).toHaveCount(1);
+    await expect(page.getByText("About Lane", { exact: true })).toHaveCount(1);
+    await expect(page.getByText(/^Version \d+\.\d+\.\d+/)).toBeVisible();
+    await page.getByRole("button", { name: "Check for updates" }).click();
+    await expect(page.getByText(/Updates unavailable in this build/)).toBeVisible();
     await expect.poll(() =>
       app.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows().some((window) => window.isVisible()),

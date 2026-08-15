@@ -167,6 +167,7 @@ function showMainWindow(): void {
   if (mainWindow?.isMinimized()) mainWindow.restore();
   mainWindow?.show();
   mainWindow?.focus();
+  if (updateState.status === "idle") autoUpdate?.checkWhenStale();
 }
 
 function openSettings(): void {
@@ -532,6 +533,7 @@ async function startCliControl(appCore: AppCore): Promise<void> {
 }
 
 function registerIpc(appCore: AppCore, installer: CliInstaller): void {
+  ipcMain.handle("lane:get-app-version", () => app.getVersion());
   ipcMain.handle("lane:get-state", () => appCore.getState());
   ipcMain.handle("lane:clear-activity", () => stateAfter(() => appCore.clearActivity()));
   ipcMain.handle("lane:set-activity-capture", (_event, enabled: unknown) => {
@@ -539,6 +541,9 @@ function registerIpc(appCore: AppCore, installer: CliInstaller): void {
     return stateAfter(() => appCore.setActivityCapture(enabled));
   });
   ipcMain.handle("lane:get-update-state", () => updateState);
+  ipcMain.handle("lane:check-for-updates", () =>
+    autoUpdate?.checkNow() ?? { status: "unavailable" },
+  );
   ipcMain.handle("lane:download-update", async () => {
     await autoUpdate?.downloadAvailable();
   });

@@ -180,12 +180,21 @@ export type LaneUpdateState =
   | { status: "available"; version: string }
   | { status: "downloading"; version: string; percent: number };
 
+export type LaneUpdateCheckResult =
+  | { status: "available"; version: string }
+  | { status: "up-to-date" }
+  | { status: "busy" }
+  | { status: "unavailable" }
+  | { status: "error" };
+
 export interface LaneRendererApi {
   readonly platform: string;
+  getAppVersion(): Promise<string>;
   getState(): Promise<LaneState>;
   clearActivity(): Promise<LaneState>;
   setActivityCapture(enabled: boolean): Promise<LaneState>;
   getUpdateState(): Promise<LaneUpdateState>;
+  checkForUpdates(): Promise<LaneUpdateCheckResult>;
   downloadUpdate(): Promise<void>;
   addProvider(input: AddProviderInput): Promise<LaneState>;
   removeProvider(providerId: string): Promise<LaneState>;

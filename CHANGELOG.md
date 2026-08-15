@@ -6,6 +6,18 @@ Notable user-visible changes are recorded here. Lane follows
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-08-15
+
+### Added
+
+- Added an About Lane section with the installed version, update status, and
+  manual update and download controls.
+
+### Changed
+
+- Checks for updates when the main window is reopened, with concurrent checks
+  shared and rate-limited to avoid redundant update-feed requests.
+
 ## [0.1.10] - 2026-08-15
 
 ### Added
@@ -127,7 +139,8 @@ Notable user-visible changes are recorded here. Lane follows
 - Restricted the gateway to IPv4 loopback, required a separate Lane client
   key, and enforced explicit browser-origin allowlists.
 
-[Unreleased]: https://github.com/1MoreBuild/Lane/compare/v0.1.10...HEAD
+[Unreleased]: https://github.com/1MoreBuild/Lane/compare/v0.1.11...HEAD
+[0.1.11]: https://github.com/1MoreBuild/Lane/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/1MoreBuild/Lane/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/1MoreBuild/Lane/compare/v0.1.7...v0.1.9
 [0.1.7]: https://github.com/1MoreBuild/Lane/compare/v0.1.6...v0.1.7

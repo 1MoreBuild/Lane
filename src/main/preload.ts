@@ -5,6 +5,7 @@ import type {
   GatewayConnectivityResult,
   LaneRendererApi,
   LaneState,
+  LaneUpdateCheckResult,
   LaneUpdateState,
   OAuthUiEvent,
   ReasoningEffort,
@@ -13,6 +14,7 @@ import type {
 
 const api: LaneRendererApi = {
   platform: process.platform,
+  getAppVersion: () => ipcRenderer.invoke("lane:get-app-version") as Promise<string>,
   getState: () => ipcRenderer.invoke("lane:get-state") as Promise<LaneState>,
   clearActivity: () =>
     ipcRenderer.invoke("lane:clear-activity") as Promise<LaneState>,
@@ -20,6 +22,8 @@ const api: LaneRendererApi = {
     ipcRenderer.invoke("lane:set-activity-capture", enabled) as Promise<LaneState>,
   getUpdateState: () =>
     ipcRenderer.invoke("lane:get-update-state") as Promise<LaneUpdateState>,
+  checkForUpdates: () =>
+    ipcRenderer.invoke("lane:check-for-updates") as Promise<LaneUpdateCheckResult>,
   downloadUpdate: () => ipcRenderer.invoke("lane:download-update") as Promise<void>,
   addProvider: (input: AddProviderInput) =>
     ipcRenderer.invoke("lane:add-provider", input) as Promise<LaneState>,

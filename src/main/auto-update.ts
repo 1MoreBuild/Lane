@@ -1,8 +1,12 @@
 import type { AppUpdater } from "electron-updater";
-import type { LaneUpdateState } from "../shared/contracts.ts";
+import type {
+  LaneUpdateCheckResult,
+  LaneUpdateState,
+} from "../shared/contracts.ts";
 
 const FIRST_CHECK_DELAY_MS = 15_000;
 const CHECK_INTERVAL_MS = 30 * 60 * 1_000;
+const REOPEN_CHECK_INTERVAL_MS = 5 * 60 * 1_000;
 
 interface UpdateLogger {
   info(message: unknown): void;
@@ -24,13 +28,6 @@ export interface LaneAutoUpdateOptions {
   scheduleInterval?: Schedule;
 }
 
-export type LaneUpdateCheckResult =
-  | { status: "available"; version: string }
-  | { status: "up-to-date" }
-  | { status: "busy" }
-  | { status: "unavailable" }
-  | { status: "error" };
-
 export class LaneAutoUpdate {
   private readonly updater: AppUpdater;
   private readonly logger: UpdateLogger;
@@ -39,7 +36,8 @@ export class LaneAutoUpdate {
   private readonly scheduleTimeout: Schedule;
   private readonly scheduleInterval: Schedule;
   private started = false;
-  private checking = false;
+  private checkPromise: Promise<LaneUpdateCheckResult> | undefined;
+  private lastCheckCompletedAt = 0;
   private downloading = false;
   private installing = false;
   private availableVersion: string | undefined;
@@ -115,10 +113,23 @@ export class LaneAutoUpdate {
     this.scheduleInterval(() => void this.checkNow(), CHECK_INTERVAL_MS).unref?.();
   }
 
-  async checkNow(): Promise<LaneUpdateCheckResult> {
-    if (!this.started) return { status: "unavailable" };
-    if (this.checking || this.downloading || this.installing) return { status: "busy" };
-    this.checking = true;
+  checkWhenStale(): void {
+    if (Date.now() - this.lastCheckCompletedAt < REOPEN_CHECK_INTERVAL_MS) return;
+    void this.checkNow();
+  }
+
+  checkNow(): Promise<LaneUpdateCheckResult> {
+    if (!this.started) return Promise.resolve({ status: "unavailable" });
+    if (this.downloading || this.installing) return Promise.resolve({ status: "busy" });
+    if (this.checkPromise) return this.checkPromise;
+    this.checkPromise = this.runCheck().finally(() => {
+      this.lastCheckCompletedAt = Date.now();
+      this.checkPromise = undefined;
+    });
+    return this.checkPromise;
+  }
+
+  private async runCheck(): Promise<LaneUpdateCheckResult> {
     try {
       await this.updater.checkForUpdates();
       return this.availableVersion
@@ -129,8 +140,6 @@ export class LaneAutoUpdate {
       return this.availableVersion
         ? { status: "available", version: this.availableVersion }
         : { status: "error" };
-    } finally {
-      this.checking = false;
     }
   }
 
