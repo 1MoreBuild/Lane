@@ -7,11 +7,9 @@ import openAiIcon from "@lobehub/icons-static-svg/icons/openai.svg";
 import openRouterIcon from "@lobehub/icons-static-svg/icons/openrouter.svg";
 import {
   Activity,
-  Braces,
   Check,
   ChevronDown,
   Clipboard,
-  Code2,
   Download,
   Eye,
   EyeOff,
@@ -73,10 +71,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
-  buildLaneEndpointCurl,
   getLaneApiBaseUrl,
-  getLaneApiUrl,
-  LANE_API_ROUTES,
 } from "../shared/api-endpoints.ts";
 import type {
   AddProviderInput,
@@ -91,6 +86,7 @@ import type {
   ReasoningEffort,
 } from "../shared/contracts.ts";
 import "./style.css";
+import { ApiEndpointsDialog } from "./api-endpoints-dialog.tsx";
 
 const CodeViewer = lazy(async () => {
   const module = await import("@/components/ui/code-viewer");
@@ -1096,82 +1092,16 @@ function App(): ReactNode {
                     {apiBaseUrl}
                   </code>
                   <div className="flex items-center">
-                    <Dialog>
-                      <DialogTrigger
-                        render={
-                          <Button
-                            aria-label="View API endpoints"
-                            className="px-2 text-muted-foreground hover:text-foreground"
-                            size="xs"
-                            variant="ghost"
-                          />
-                        }
-                      >
-                        <Braces data-icon="inline-start" />
-                        Endpoints
-                      </DialogTrigger>
-                      <DialogContent className="gap-4">
-                        <DialogHeader>
-                          <DialogTitle>API endpoints</DialogTitle>
-                        </DialogHeader>
-                        <div className="min-w-0 divide-y overflow-hidden">
-                          {LANE_API_ROUTES.map((route) => {
-                            const routeUrl = getLaneApiUrl(
-                              state.gateway.endpoint,
-                              route.path,
-                            );
-                            return (
-                              <div
-                                className="flex min-w-0 items-center gap-3 py-2.5"
-                                key={route.path}
-                              >
-                                <span className="lane-label w-9 shrink-0 text-muted-foreground">
-                                  {route.method}
-                                </span>
-                                <div className="min-w-0 flex-1">
-                                  <p className="lane-value">{route.label}</p>
-                                  <code className="lane-mono-value block truncate text-muted-foreground">
-                                    {routeUrl}
-                                  </code>
-                                </div>
-                                <IconAction
-                                  label={
-                                    copied === `curl:${route.path}`
-                                      ? "Copied"
-                                      : `Copy ${route.label} cURL`
-                                  }
-                                  onClick={() =>
-                                    void copyValue(
-                                      buildLaneEndpointCurl(
-                                        state.gateway.endpoint,
-                                        route.path,
-                                        state.clientKey,
-                                        {
-                                          ...(state.defaultModel
-                                            ? { defaultModel: state.defaultModel }
-                                            : {}),
-                                          ...(state.defaultImageModel
-                                            ? {
-                                                defaultImageModel:
-                                                  state.defaultImageModel,
-                                              }
-                                            : {}),
-                                        },
-                                      ),
-                                      `curl:${route.path}`,
-                                    )
-                                  }
-                                >
-                                  {copied === `curl:${route.path}`
-                                    ? <Check />
-                                    : <Code2 />}
-                                </IconAction>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </DialogContent>
-                    </Dialog>
+                    <ApiEndpointsDialog
+                      clientKey={state.clientKey}
+                      copied={copied}
+                      copyValue={copyValue}
+                      {...(state.defaultImageModel
+                        ? { defaultImageModel: state.defaultImageModel }
+                        : {})}
+                      {...(state.defaultModel ? { defaultModel: state.defaultModel } : {})}
+                      endpoint={state.gateway.endpoint}
+                    />
                     <IconAction
                       label={copied === "base-url" ? "Copied" : "Copy API base URL"}
                       onClick={() => void copyValue(apiBaseUrl, "base-url")}

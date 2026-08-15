@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   AddProviderInput,
   CliIntegrationState,
+  GatewayConnectivityResult,
   LaneRendererApi,
   LaneState,
   LaneUpdateState,
@@ -47,6 +48,8 @@ const api: LaneRendererApi = {
     ipcRenderer.invoke("lane:get-cli-integration") as Promise<CliIntegrationState>,
   installCliIntegration: () =>
     ipcRenderer.invoke("lane:install-cli-integration") as Promise<CliIntegrationState>,
+  testGatewayConnectivity: () =>
+    ipcRenderer.invoke("lane:test-gateway-connectivity") as Promise<GatewayConnectivityResult>,
   copyText: (text: string) => ipcRenderer.invoke("lane:copy-text", text),
   openMainWindow: () => ipcRenderer.invoke("lane:open-main-window"),
   quitApp: () => ipcRenderer.invoke("lane:quit-app"),

@@ -565,7 +565,7 @@ export class GatewayServer {
           return "/";
         }
       })();
-      const shouldTrace = method !== "OPTIONS";
+      const shouldTrace = method !== "OPTIONS" && path !== "/health";
       const captureThisRequest = shouldTrace && this.captureEnabled;
       const requestRecorder = captureThisRequest ? new BodyRecorder() : undefined;
       const responseRecorder = captureThisRequest ? new BodyRecorder() : undefined;

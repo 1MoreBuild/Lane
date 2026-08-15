@@ -1,0 +1,1 @@
+- Added clear cURL copy actions and an end-to-end connection test for the local gateway, WSL, provider, and default model in the API endpoints panel.

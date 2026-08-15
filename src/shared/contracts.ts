@@ -98,6 +98,36 @@ export interface CliIntegrationState {
   error?: string;
 }
 
+export type GatewayProbeStatus = "reachable" | "unreachable" | "unavailable";
+
+export type GatewayProbeReason =
+  | "authentication_failed"
+  | "connection_failed"
+  | "gateway_unavailable"
+  | "model_not_configured"
+  | "model_not_found"
+  | "provider_unavailable"
+  | "rate_limited"
+  | "request_timeout"
+  | "unexpected_response"
+  | "wsl_not_running"
+  | "wsl_unavailable"
+  | "probe_tool_missing";
+
+export interface GatewayConnectivityProbe {
+  status: GatewayProbeStatus;
+  latencyMs?: number;
+  reason?: GatewayProbeReason;
+  environment?: string;
+}
+
+export interface GatewayConnectivityResult {
+  checkedAt: number;
+  desktop: GatewayConnectivityProbe;
+  model: GatewayConnectivityProbe;
+  wsl?: GatewayConnectivityProbe;
+}
+
 export interface GatewayTrace {
   kind: "gateway";
   requestId: string;
@@ -173,6 +203,7 @@ export interface LaneRendererApi {
   setMenuBarIconVisible(enabled: boolean): Promise<LaneState>;
   getCliIntegration(): Promise<CliIntegrationState>;
   installCliIntegration(): Promise<CliIntegrationState>;
+  testGatewayConnectivity(): Promise<GatewayConnectivityResult>;
   copyText(text: string): Promise<void>;
   openMainWindow(): Promise<void>;
   quitApp(): Promise<void>;

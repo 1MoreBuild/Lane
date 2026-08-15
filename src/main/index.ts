@@ -47,6 +47,7 @@ import {
 import { CliInstaller, restoreEnabledCliIntegration } from "./cli-install.ts";
 import { ConfigStore } from "./config-store.ts";
 import { SecureCredentialStore } from "./credential-store.ts";
+import { testGatewayConnectivity } from "./gateway-connectivity.ts";
 import { ElectronSecretBackend } from "./electron-secret-backend.ts";
 import { E2ESecretBackend } from "./e2e-secret-backend.ts";
 import { LaneLogger, redact } from "./logger.ts";
@@ -162,6 +163,7 @@ async function shutdownServices(): Promise<void> {
 
 function showMainWindow(): void {
   menubarWindow?.hide();
+  if (e2eMode) return;
   if (mainWindow?.isMinimized()) mainWindow.restore();
   mainWindow?.show();
   mainWindow?.focus();
@@ -616,6 +618,14 @@ function registerIpc(appCore: AppCore, installer: CliInstaller): void {
     sendState(state);
     return await installer.getState(true);
   });
+  ipcMain.handle("lane:test-gateway-connectivity", async () => {
+    const state = await appCore.getState();
+    return await testGatewayConnectivity(
+      state.gateway.endpoint,
+      state.clientKey,
+      state.defaultModel,
+    );
+  });
   ipcMain.handle("lane:copy-text", (_event, text: unknown) => {
     if (typeof text !== "string" || text.length > 4096) throw new Error("Invalid text");
     clipboard.writeText(text);
@@ -722,6 +732,10 @@ function positionMenubarWindow(): void {
 
 function toggleMenubarWindow(): void {
   if (!menubarWindow) return;
+  if (e2eMode) {
+    menubarWindow.hide();
+    return;
+  }
   if (menubarWindow.isVisible()) {
     menubarWindow.hide();
     return;
@@ -736,6 +750,7 @@ async function createMenubarWindow(): Promise<BrowserWindow> {
     width: 208,
     height: 96,
     show: false,
+    focusable: !e2eMode,
     frame: false,
     transparent: true,
     resizable: false,
@@ -792,6 +807,8 @@ async function createWindow(): Promise<BrowserWindow> {
     // Packaged E2E exercises the real renderer and IPC boundary in a hidden
     // native window so the suite does not steal focus from the desktop.
     show: !cliWakeMode && !e2eMode,
+    focusable: !e2eMode,
+    skipTaskbar: e2eMode,
     title: "Lane",
     // Keep Windows focused on the gateway UI while preserving the application
     // menu and its keyboard access through Alt.

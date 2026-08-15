@@ -548,9 +548,14 @@ test.describe("Lane packaged product journeys", () => {
     });
 
     await page.getByRole("button", { name: "View API endpoints" }).click();
+    await expect(page.getByText("Not tested", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Test connection" }).click();
+    await expect(page.getByText("Ready", { exact: true })).toBeVisible();
+    await expect(page.getByText("The model returned a successful response")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Test again" })).toBeVisible();
     const copyModelsCurl = page.getByRole("button", { name: "Copy Models cURL" });
     await copyModelsCurl.click();
-    await expect(copyModelsCurl.locator("svg")).toBeVisible();
+    await expect(copyModelsCurl).toContainText("Copied");
     const copied = await app.evaluate(() =>
       (globalThis as typeof globalThis & { laneE2eClipboard?: string })
         .laneE2eClipboard,
@@ -594,6 +599,11 @@ test.describe("Lane packaged product journeys", () => {
 
     await expect(page.getByText("Theme", { exact: true })).toHaveCount(1);
     await expect(page.getByRole("switch", { name: /Show Lane in (Dock|taskbar)/ })).toHaveCount(1);
+    await expect.poll(() =>
+      app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().some((window) => window.isVisible()),
+      )
+    ).toBe(false);
 
     if (process.platform === "darwin") {
       const message = await app.evaluate(async ({ BrowserWindow, Menu, dialog }) => {
