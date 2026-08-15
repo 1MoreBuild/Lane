@@ -97,4 +97,25 @@ describe("update install guard", () => {
     clearUpdateInstallPending(marker);
     expect(isUpdateInstallPending(marker, () => 2_001)).toBe(false);
   });
+
+  it("clears the install marker when auxiliary process discovery fails", async () => {
+    const marker = await markerPath();
+
+    await expect(
+      prepareForUpdateInstall({
+        markerPath: marker,
+        executablePath: "/Applications/Lane.app/Contents/MacOS/Lane",
+        currentPid: 100,
+        platform: "darwin",
+        listProcesses: async () => {
+          throw new Error("process table unavailable");
+        },
+        killProcess: vi.fn(),
+        wait: async () => undefined,
+        now: () => 3_000,
+      }),
+    ).rejects.toThrow("process table unavailable");
+
+    expect(isUpdateInstallPending(marker, () => 3_001)).toBe(false);
+  });
 });

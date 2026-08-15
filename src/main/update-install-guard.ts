@@ -115,19 +115,24 @@ export async function prepareForUpdateInstall(
     options.wait ??
     ((milliseconds: number) =>
       new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
-  const initial = findAuxiliaryLaneProcessIds(
-    await listProcesses(),
-    options.executablePath,
-    options.currentPid,
-  );
-  signal(initial, "SIGTERM", killProcess);
-  if (initial.length > 0) await wait(600);
+  try {
+    const initial = findAuxiliaryLaneProcessIds(
+      await listProcesses(),
+      options.executablePath,
+      options.currentPid,
+    );
+    signal(initial, "SIGTERM", killProcess);
+    if (initial.length > 0) await wait(600);
 
-  const remaining = findAuxiliaryLaneProcessIds(
-    await listProcesses(),
-    options.executablePath,
-    options.currentPid,
-  );
-  signal(remaining, "SIGKILL", killProcess);
-  return [...new Set([...initial, ...remaining])];
+    const remaining = findAuxiliaryLaneProcessIds(
+      await listProcesses(),
+      options.executablePath,
+      options.currentPid,
+    );
+    signal(remaining, "SIGKILL", killProcess);
+    return [...new Set([...initial, ...remaining])];
+  } catch (error) {
+    removeMarker(options.markerPath);
+    throw error;
+  }
 }
