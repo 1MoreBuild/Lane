@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import {
   readFileSync,
+  realpathSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -18,6 +19,7 @@ interface UpdateInstallOptions {
   killProcess?: (pid: number, signal: NodeJS.Signals) => void;
   wait?: (milliseconds: number) => Promise<void>;
   now?: () => number;
+  canonicalizeExecutable?: (path: string) => string;
 }
 
 function removeMarker(markerPath: string): void {
@@ -62,18 +64,41 @@ export function findAuxiliaryLaneProcessIds(
   processTable: string,
   executablePath: string,
   currentPid: number,
+  canonicalizeExecutable: (path: string) => string = realpathSync,
 ): number[] {
   const matches: number[] = [];
+  const executableBasename = executablePath.slice(
+    executablePath.lastIndexOf("/") + 1,
+  );
+  const executableSuffix = `/${executableBasename}`;
   for (const line of processTable.split("\n")) {
     const parsed = line.trim().match(/^(\d+)\s+(.+)$/);
     if (!parsed) continue;
     const pid = Number(parsed[1]);
     const command = parsed[2]!;
-    if (
-      pid !== currentPid &&
-      (command === executablePath || command.startsWith(`${executablePath} `))
-    ) {
+    if (pid === currentPid) continue;
+    if (command === executablePath || command.startsWith(`${executablePath} `)) {
       matches.push(pid);
+      continue;
+    }
+    let suffixIndex = command.indexOf(executableSuffix);
+    while (suffixIndex >= 0) {
+      const candidateEnd = suffixIndex + executableSuffix.length;
+      if (candidateEnd === command.length || command[candidateEnd] === " ") {
+        const candidate = command.slice(0, candidateEnd);
+        try {
+          if (
+            canonicalizeExecutable(candidate) ===
+            canonicalizeExecutable(executablePath)
+          ) {
+            matches.push(pid);
+            break;
+          }
+        } catch {
+          // The process may exit while ps output is being inspected.
+        }
+      }
+      suffixIndex = command.indexOf(executableSuffix, suffixIndex + 1);
     }
   }
   return matches;
@@ -120,6 +145,7 @@ export async function prepareForUpdateInstall(
       await listProcesses(),
       options.executablePath,
       options.currentPid,
+      options.canonicalizeExecutable,
     );
     signal(initial, "SIGTERM", killProcess);
     if (initial.length > 0) await wait(600);
@@ -128,6 +154,7 @@ export async function prepareForUpdateInstall(
       await listProcesses(),
       options.executablePath,
       options.currentPid,
+      options.canonicalizeExecutable,
     );
     signal(remaining, "SIGKILL", killProcess);
     return [...new Set([...initial, ...remaining])];

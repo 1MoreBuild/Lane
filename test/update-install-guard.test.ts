@@ -39,6 +39,18 @@ describe("update install guard", () => {
     expect(findAuxiliaryLaneProcessIds(output, executable, 100)).toEqual([101, 102]);
   });
 
+  it("canonicalizes the packaged launcher's lexical executable path", () => {
+    const executable = "/Applications/Lane.app/Contents/MacOS/Lane";
+    const launched =
+      "/Applications/Lane.app/Contents/Resources/../MacOS/Lane models --json";
+    const canonicalize = (path: string) =>
+      path.replace("/Contents/Resources/../MacOS/", "/Contents/MacOS/");
+
+    expect(
+      findAuxiliaryLaneProcessIds(`101 ${launched}`, executable, 100, canonicalize),
+    ).toEqual([101]);
+  });
+
   it("marks the install window and stops auxiliary Lane processes", async () => {
     const marker = await markerPath();
     const executable = "/Applications/Lane.app/Contents/MacOS/Lane";
