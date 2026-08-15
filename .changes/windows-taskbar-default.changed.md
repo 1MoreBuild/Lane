@@ -1,1 +1,0 @@
-- Keep Lane in the Windows system tray without showing a taskbar button by default.

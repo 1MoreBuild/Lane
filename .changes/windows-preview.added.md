@@ -1,1 +1,0 @@
-- Added an unsigned dual-architecture Windows preview installer with installed-product checks on native x64 and ARM64 runners.

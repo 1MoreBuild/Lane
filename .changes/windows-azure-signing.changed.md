@@ -1,1 +1,0 @@
-- Moved stable Windows releases to Azure Artifact Signing with managed keys, publisher verification, and trusted timestamp checks.

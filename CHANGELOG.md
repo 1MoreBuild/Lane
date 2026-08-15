@@ -6,6 +6,45 @@ Notable user-visible changes are recorded here. Lane follows
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-08-15
+
+### Added
+
+- Added an end-to-end connection test that verifies the local gateway,
+  provider credentials, and default model with one explicit minimal request,
+  plus Windows WSL reachability diagnostics and ready-to-copy fixes.
+- Added clear copy actions for every supported API endpoint.
+
+## [0.1.9] - 2026-08-14
+
+### Added
+
+- Added an Authenticode-signed Windows x64 installer with user-confirmed
+  automatic updates through stable GitHub Releases.
+- Added a dedicated Windows Chrome Native Messaging host so the approved
+  Transly extension can discover and connect to Lane.
+- Added an unsigned Windows x64 preview installer with installed-product
+  verification on a native x64 runner.
+
+### Changed
+
+- Moved stable Windows signing to Azure Artifact Signing with managed keys,
+  publisher verification, and trusted timestamps.
+- Hid the Windows application menu bar by default; press Alt to show it
+  temporarily.
+- Kept Lane in the Windows system tray without showing a taskbar button by
+  default.
+- Improved the Windows layout for compact, full-screen, and long Activity
+  views.
+
+### Fixed
+
+- Fixed duplicate and overlapping Settings panels on Windows and Linux.
+- Fixed installing and detecting the `lane` command on Windows without
+  administrator privileges.
+- Increased the default Windows window height and restored scrolling on long
+  pages.
+
 ## [0.1.7] - 2026-08-11
 
 ### Changed
@@ -88,7 +127,9 @@ Notable user-visible changes are recorded here. Lane follows
 - Restricted the gateway to IPv4 loopback, required a separate Lane client
   key, and enforced explicit browser-origin allowlists.
 
-[Unreleased]: https://github.com/1MoreBuild/Lane/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/1MoreBuild/Lane/compare/v0.1.10...HEAD
+[0.1.10]: https://github.com/1MoreBuild/Lane/compare/v0.1.9...v0.1.10
+[0.1.9]: https://github.com/1MoreBuild/Lane/compare/v0.1.7...v0.1.9
 [0.1.7]: https://github.com/1MoreBuild/Lane/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/1MoreBuild/Lane/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/1MoreBuild/Lane/compare/v0.1.3...v0.1.5

@@ -1,1 +1,0 @@
-- Fixed duplicate Settings panels and focus traps on Windows and Linux.
