@@ -538,6 +538,7 @@ test.describe("Lane packaged product journeys", () => {
 
   test("copies an endpoint cURL and exposes Quit in the menu bar", async () => {
     const { app, page } = context.session!;
+    await connectMockProvider(page, context.upstream);
     const { apiBaseUrl, clientKey } = await startGateway(page);
     await app.evaluate(({ clipboard }) => {
       const capture = globalThis as typeof globalThis & { laneE2eClipboard?: string };
