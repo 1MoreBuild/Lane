@@ -1,5 +1,8 @@
 import type { AppUpdater } from "electron-updater";
-import type { LaneUpdateState } from "../shared/contracts.ts";
+import type {
+  LaneUpdateCheckResult,
+  LaneUpdateState,
+} from "../shared/contracts.ts";
 
 const FIRST_CHECK_DELAY_MS = 15_000;
 const CHECK_INTERVAL_MS = 30 * 60 * 1_000;
@@ -23,13 +26,6 @@ export interface LaneAutoUpdateOptions {
   scheduleTimeout?: Schedule;
   scheduleInterval?: Schedule;
 }
-
-export type LaneUpdateCheckResult =
-  | { status: "available"; version: string }
-  | { status: "up-to-date" }
-  | { status: "busy" }
-  | { status: "unavailable" }
-  | { status: "error" };
 
 export class LaneAutoUpdate {
   private readonly updater: AppUpdater;
