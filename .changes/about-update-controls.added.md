@@ -1,1 +1,0 @@
-- Added an About Lane section with the installed version, update status, and manual update controls.

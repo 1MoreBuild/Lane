@@ -167,7 +167,7 @@ function showMainWindow(): void {
   if (mainWindow?.isMinimized()) mainWindow.restore();
   mainWindow?.show();
   mainWindow?.focus();
-  if (updateState.status === "idle") void autoUpdate?.checkNow();
+  if (updateState.status === "idle") autoUpdate?.checkWhenStale();
 }
 
 function openSettings(): void {
