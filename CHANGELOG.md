@@ -18,13 +18,6 @@ Notable user-visible changes are recorded here. Lane follows
 - Checks for updates when the main window is reopened, with concurrent checks
   shared and rate-limited to avoid redundant update-feed requests.
 
-### Fixed
-
-- Fixed provider reconnection when a stored credential is missing or unreadable,
-  including in-place repair through the Lane CLI.
-- Fixed macOS updates that could download successfully but fail to install or
-  relaunch while a Lane CLI or Native Messaging helper was still running.
-
 ## [0.1.10] - 2026-08-15
 
 ### Added
