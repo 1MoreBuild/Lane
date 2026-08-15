@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import process from "node:process";
+import { setTimeout as delay } from "node:timers/promises";
 
 if (process.platform !== "win32") {
   throw new Error("Installed NSIS E2E must run on Windows");
@@ -163,7 +164,16 @@ try {
   if (resolvedDirectory === temporaryRoot || !resolvedDirectory.startsWith(`${temporaryRoot}\\`)) {
     throw new Error(`Refusing to remove unsafe Windows E2E directory: ${resolvedDirectory}`);
   }
-  await rm(resolvedDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      await rm(resolvedDirectory, { recursive: true, force: true });
+      break;
+    } catch (error) {
+      const retryable = ["EBUSY", "ENOTEMPTY", "EPERM"].includes(error?.code);
+      if (!retryable || attempt === 59) throw error;
+      await delay(500);
+    }
+  }
 } catch (error) {
   cleanupError ??= error;
 }
