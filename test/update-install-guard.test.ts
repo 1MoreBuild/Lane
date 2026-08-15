@@ -129,6 +129,7 @@ describe("update install guard", () => {
         markerPath: marker,
         executablePath: "/Applications/Lane.app/Contents/MacOS/Lane",
         currentPid: 100,
+        currentUserId: 501,
         platform: "darwin",
         listProcesses: async () => {
           throw new Error("process table unavailable");
