@@ -1,7 +1,11 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import {
   installCliOutputErrorHandlers,
+  readBridgedCliStdin,
   runLaneCli,
   type LaneCliIo,
 } from "../src/main/cli.ts";
@@ -39,6 +43,27 @@ const status: CliControlResponse = {
 };
 
 describe("Lane CLI", () => {
+  it("reads and removes a Windows launcher stdin bridge", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lane-cli-bridge-test-"));
+    try {
+      const path = join(directory, "lane-cli-stdin-secret");
+      await writeFile(path, "provider-secret\n", { mode: 0o600 });
+
+      await expect(readBridgedCliStdin(path, directory)).resolves.toBe(
+        "provider-secret\n",
+      );
+      await expect(readFile(path, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects stdin bridge paths outside the launcher temp directory", async () => {
+    await expect(
+      readBridgedCliStdin("/tmp/not-a-lane-bridge", "/tmp"),
+    ).rejects.toThrow("Invalid Lane CLI stdin bridge path");
+  });
+
   it("exits quietly when a caller closes the output pipe", () => {
     const stdout = new PassThrough();
     const stderr = new PassThrough();
