@@ -8,7 +8,7 @@ import {
   rm,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -82,6 +82,67 @@ function assertNoExistingLaneInstallation(environment) {
   }
 }
 
+function installedLaneDirectories(environment) {
+  const systemRoot = environment.SystemRoot ?? environment.WINDIR;
+  if (!systemRoot) throw new Error("SystemRoot is required for Windows installed E2E");
+  const reg = join(systemRoot, "System32", "reg.exe");
+  const uninstallRoots = [
+    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+  ];
+  const directories = new Set();
+
+  for (const root of uninstallRoots) {
+    const queried = spawnSync(reg, ["query", root, "/s"], {
+      encoding: "utf8",
+      env: environment,
+      timeout: 30_000,
+      windowsHide: true,
+    });
+    if (queried.error) throw queried.error;
+    if (queried.status !== 0 && queried.status !== 1) {
+      requireSuccess(queried, `Lane installation discovery for ${root}`);
+    }
+
+    const blocks = (queried.stdout ?? "").split(/(?=^HKEY_)/m);
+    for (const block of blocks) {
+      if (!/^\s*DisplayName\s+REG_\w+\s+Lane(?:\s+\d+(?:\.\d+)*)?\s*$/im.test(block)) {
+        continue;
+      }
+      const displayIcon = block.match(/^\s*DisplayIcon\s+REG_\w+\s+(.+?)(?:,\d+)?\s*$/im)?.[1];
+      const uninstall = block.match(/^\s*(?:Quiet)?UninstallString\s+REG_\w+\s+(.+)$/im)?.[1];
+      const executable = displayIcon?.replace(/^"|"$/g, "")
+        ?? uninstall?.match(/^"([^"]+)"/)?.[1];
+      if (executable) directories.add(dirname(executable));
+    }
+  }
+
+  return [...directories];
+}
+
+async function resolveInstalledDirectory(environment, requestedDirectory) {
+  let discoveredDirectories = [];
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    discoveredDirectories = installedLaneDirectories(environment);
+    for (const candidate of new Set([requestedDirectory, ...discoveredDirectories])) {
+      try {
+        await access(join(candidate, "Lane.exe"));
+        return candidate;
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+    await delay(1_000);
+  }
+  throw new Error(
+    `NSIS installation did not create Lane.exe in ${requestedDirectory}`
+      + (discoveredDirectories.length > 0
+        ? ` or the registered directories: ${discoveredDirectories.join(", ")}`
+        : " and did not register an alternate installation directory"),
+  );
+}
+
 async function peArchitecture(path) {
   const file = await open(path, "r");
   try {
@@ -106,19 +167,21 @@ const environment = e2eEnvironment();
 assertNoExistingLaneInstallation(environment);
 const temporaryRoot = await realpath(tmpdir());
 const directory = await mkdtemp(join(temporaryRoot, "lane-nsis-e2e-"));
-const installedDirectory = join(directory, "Lane");
-const installedExecutable = join(installedDirectory, "Lane.exe");
+const requestedInstalledDirectory = join(directory, "Lane");
+let installedDirectory = requestedInstalledDirectory;
+let installedExecutable;
 let runError;
 try {
   await access(installer);
-  const installed = spawnSync(installer, ["/S", `/D=${installedDirectory}`], {
+  const installed = spawnSync(installer, ["/S", `/D=${requestedInstalledDirectory}`], {
     env: environment,
     stdio: "ignore",
     timeout: 300_000,
     windowsHide: true,
   });
   requireSuccess(installed, "NSIS installation");
-  await access(installedExecutable);
+  installedDirectory = await resolveInstalledDirectory(environment, requestedInstalledDirectory);
+  installedExecutable = join(installedDirectory, "Lane.exe");
 
   const architecture = await peArchitecture(installedExecutable);
   if (architecture !== process.arch) {
