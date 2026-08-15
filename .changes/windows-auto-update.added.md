@@ -1,1 +1,0 @@
-- Added signed Windows x64 and ARM64 automatic updates through stable GitHub Releases.
