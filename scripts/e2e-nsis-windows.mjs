@@ -124,8 +124,14 @@ function installedLaneDirectories(environment) {
 async function resolveInstalledDirectory(environment, requestedDirectory) {
   let discoveredDirectories = [];
   for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      await access(join(requestedDirectory, "Lane.exe"));
+      return requestedDirectory;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
     discoveredDirectories = installedLaneDirectories(environment);
-    for (const candidate of new Set([requestedDirectory, ...discoveredDirectories])) {
+    for (const candidate of discoveredDirectories) {
       try {
         await access(join(candidate, "Lane.exe"));
         return candidate;
