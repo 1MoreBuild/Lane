@@ -19,16 +19,16 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/1MoreBuild/Lane/releases/latest"><strong>Download Lane for macOS →</strong></a>
+  <a href="https://github.com/1MoreBuild/Lane/releases/latest"><strong>Download Lane for macOS or Windows →</strong></a>
 </p>
 
 <p align="center">
-  <img src="./docs/assets/lane-hero-v5.png" width="900" alt="Lane running as a private local AI gateway on macOS">
+  <img src="./docs/assets/lane-hero-v5.png" width="900" alt="Lane running as a private local AI gateway">
 </p>
 
 Lane turns the AI providers you already use into one OpenAI-compatible API on
-your Mac. Sign in to ChatGPT / Codex with OAuth or add a provider API key, then
-connect any local client to Lane.
+your computer. Sign in to ChatGPT / Codex with OAuth or add a provider API key,
+then connect any local client to Lane.
 
 Lane is a gateway, not an agent. It does not add hidden instructions, run an
 agent loop, or execute tool calls.
@@ -38,8 +38,8 @@ agent loop, or execute tool calls.
 - One loopback API for ChatGPT / Codex, OpenAI, Anthropic, OpenRouter, and
   custom OpenAI-compatible endpoints.
 - Responses, Chat Completions, image generation, streaming, and image input.
-- Keychain-backed provider credentials that never enter the renderer or local
-  API responses.
+- OS-protected provider credentials that never enter the renderer or local API
+  responses.
 - A separate Lane client key, explicit browser-origin allowlists, and a gateway
   fixed to `127.0.0.1`.
 - Redacted persistent activity plus optional session-only request capture for
@@ -48,17 +48,23 @@ agent loop, or execute tool calls.
 
 ## Install
 
-Download the current DMG from
+Download the current installer from
 [GitHub Releases](https://github.com/1MoreBuild/Lane/releases/latest):
 
-| Mac | Download |
-| --- | --- |
-| Apple Silicon | `Lane-…-mac-arm64.dmg` |
-| Intel | `Lane-…-mac-x64.dmg` |
+| Platform | Architecture | Download |
+| --- | --- | --- |
+| macOS | Apple Silicon | `Lane-…-mac-arm64.dmg` |
+| macOS | Intel | `Lane-…-mac-x64.dmg` |
+| Windows | 64-bit Intel/AMD (x64) | `Lane-…-windows-setup.exe` |
 
 Lane's stable macOS releases are Developer ID signed, notarized by Apple, and
 tested after installation on native Apple Silicon and Intel runners. Drag Lane
 to Applications and open it normally.
+
+Stable Windows releases are Authenticode signed and tested by installing,
+launching, and uninstalling the x64 package on Windows. Run the setup executable
+and follow the installer. Windows on ARM (ARM64) and 32-bit Windows (x86/ia32)
+are not currently supported.
 
 ## Start in three steps
 

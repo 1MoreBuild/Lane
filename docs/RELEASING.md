@@ -9,10 +9,10 @@ rollback path.
 - The source repository is public under the permissive MIT license.
 - Stable macOS releases are Developer ID signed, notarized, stapled, and
   published as separate Apple Silicon and Intel artifacts. Stable Windows
-  releases are Authenticode signed and published as one architecture-selecting
-  NSIS installer with x64 and ARM64 payloads.
+  releases are Authenticode signed and published as a separate x64 NSIS
+  installer. Windows ARM64 and 32-bit x86 are not currently supported.
 - Stable publication waits for signature verification and installed-product E2E
-  on native Apple Silicon, Intel, Windows x64, and Windows ARM64 GitHub runners.
+  on native Apple Silicon, Intel, and Windows x64 GitHub runners.
 - Packaged-product E2E uses a deterministic local mock provider and isolated
   user data. It never sends a paid or subscription model request.
 - Preview macOS output has a complete ad-hoc bundle signature so Gatekeeper does
@@ -30,10 +30,9 @@ rollback path.
   the UI, API, security, persistence, port-conflict, CLI, and dedicated Native
   Messaging host journeys.
 - The manually dispatched Windows Preview workflow produces one unsigned NSIS
-  installer containing native x64 and ARM64 applications. It installs, tests,
-  and uninstalls the package on native x64 and ARM64 runners, then retains the
-  installer as a workflow artifact for 14 days. It does not publish a GitHub
-  Release or enable automatic updates.
+  x64 installer. It installs, tests, and uninstalls the package on an x64
+  runner, then retains the installer as a workflow artifact for 14 days. It
+  does not publish a GitHub Release or enable automatic updates.
 - ChatGPT / Codex login requires interactive acceptance with an eligible account.
   Automated tests do not claim that a real account can log in.
 - Automated tests use mock providers and never make a paid generation request.
@@ -101,11 +100,11 @@ The stable release workflow supplies the intended identity and notarization
 credentials explicitly and sets `forceCodeSigning`.
 
 Stable version tags such as `v0.1.0` build separate Apple Silicon and Intel DMG
-and ZIP artifacts plus one signed Windows NSIS installer. `latest-mac.yml`,
+and ZIP artifacts plus one signed Windows x64 NSIS installer. `latest-mac.yml`,
 `latest.yml`, and their blockmaps support standard differential updates on both
 platforms. DMG blockmaps are not published because Lane's updater never consumes
-them. Publishing waits for signature checks and installed-product E2E on all four
-native architecture runners. Prerelease tags such as `v0.1.1-test.1` remain
+them. Publishing waits for signature checks and installed-product E2E on both Mac
+architectures and Windows x64. Prerelease tags such as `v0.1.1-test.1` remain
 unsigned, manual-install feedback builds.
 
 Before creating a stable tag, run the `Release` workflow manually from `main`.
@@ -185,16 +184,17 @@ npm run e2e:nsis:win
 ```
 
 The package command downloads a checksum-pinned Go build toolchain, builds the
-minimal Native Messaging host for x64 and ARM64, and generates one
-dual-architecture NSIS installer with a stable updater-safe filename. The E2E
-command installs it into a fresh temporary directory, confirms NSIS selected
-the runner's native architecture, runs the packaged-product and Native
-Messaging journeys, uninstalls Lane, and removes the temporary directory.
+minimal Native Messaging host, and generates one x64 NSIS installer with a
+stable updater-safe filename. The E2E command installs it into a fresh temporary
+directory, confirms the installed executable is x64, runs the packaged-product
+and Native Messaging journeys, uninstalls Lane, and removes the temporary
+directory.
 
-Run the NSIS installer on clean x64 and arm64 Windows hosts before making a
-Windows runtime claim. Test install, launch, secure storage, loopback binding,
-CLI/control behavior, Chrome registration, Transly connection, upgrade,
-uninstall cleanup, and rollback.
+Run the NSIS installer on a clean x64 Windows host before making a Windows
+runtime claim. Test install, launch, secure storage, loopback binding, CLI/control
+behavior, Chrome registration, Transly connection, upgrade, uninstall cleanup,
+and rollback. Do not publish a Windows ARM64 package until the same journey has
+passed on native ARM64 hardware.
 
 Sign the application binaries and installer with a certificate trusted by
 Windows. A self-signed certificate is for local testing only and does not make a
@@ -202,15 +202,15 @@ public download trustworthy.
 
 Stable Windows builds use `npm run package:win:release` and Azure Artifact
 Signing. The release workflow compiles the updater marker before credentials
-enter scope, signs both native payloads and the NSIS installer, and verifies
-that every Lane executable has a valid Authenticode chain, the expected
-publisher name, and a trusted timestamp. Publisher verification is used instead
-of a certificate thumbprint because Artifact Signing issues and rotates
-short-lived certificates. The workflow then runs the installed product suite on
-native x64 and ARM64 runners. It publishes the installer, installer blockmap,
-`latest.yml`, and `SHA256SUMS-windows` only after both runners pass. The Windows
-client checks the same public GitHub Release feed as macOS and asks the user
-before downloading.
+enter scope, signs the x64 application, CLI, Native Messaging host, and NSIS
+installer, and verifies that every Lane executable has a valid Authenticode
+chain, the expected publisher name, and a trusted timestamp. Publisher
+verification is used instead of a certificate thumbprint because Artifact
+Signing issues and rotates short-lived certificates. The workflow then runs the
+installed product suite on an x64 runner. It publishes the installer, installer
+blockmap, `latest.yml`, and `SHA256SUMS-windows` only after that runner passes.
+The Windows client checks the same public GitHub Release feed as macOS and asks
+the user before downloading.
 
 The Artifact Signing private key remains in Microsoft's managed HSM and is not
 exported as a PFX. Grant the CI service principal only the `Artifact Signing
