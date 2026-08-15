@@ -67,8 +67,13 @@ describe("update install guard", () => {
     const processTables = [
       `501 100 ${executable}\n501 101 ${executable} models\n501 102 ${executable} chrome-extension://approved`,
       `501 100 ${executable}\n501 102 ${executable} chrome-extension://approved`,
+      `501 100 ${executable}`,
     ];
     const kill = vi.fn();
+    const listProcesses = vi.fn(
+      async () => processTables.shift() ?? `501 100 ${executable}`,
+    );
+    const wait = vi.fn(async () => undefined);
 
     const stopped = await prepareForUpdateInstall({
       markerPath: marker,
@@ -76,9 +81,9 @@ describe("update install guard", () => {
       currentPid: 100,
       currentUserId: 501,
       platform: "darwin",
-      listProcesses: async () => processTables.shift() ?? `100 ${executable}`,
+      listProcesses,
       killProcess: kill,
-      wait: async () => undefined,
+      wait,
       now: () => 1_000,
     });
 
@@ -88,6 +93,8 @@ describe("update install guard", () => {
       [102, "SIGTERM"],
       [102, "SIGKILL"],
     ]);
+    expect(listProcesses).toHaveBeenCalledTimes(3);
+    expect(wait.mock.calls).toEqual([[600], [100]]);
     expect(isUpdateInstallPending(marker, () => 1_001)).toBe(true);
   });
 
@@ -141,5 +148,34 @@ describe("update install guard", () => {
     ).rejects.toThrow("process table unavailable");
 
     expect(isUpdateInstallPending(marker, () => 3_001)).toBe(false);
+  });
+
+  it("aborts and clears the marker when a force-killed helper stays alive", async () => {
+    const marker = await markerPath();
+    const executable = "/Applications/Lane.app/Contents/MacOS/Lane";
+    const table = `501 100 ${executable}\n501 101 ${executable} models`;
+    const kill = vi.fn();
+    const wait = vi.fn(async () => undefined);
+
+    await expect(
+      prepareForUpdateInstall({
+        markerPath: marker,
+        executablePath: executable,
+        currentPid: 100,
+        currentUserId: 501,
+        platform: "darwin",
+        listProcesses: async () => table,
+        killProcess: kill,
+        wait,
+        now: () => 4_000,
+      }),
+    ).rejects.toThrow("Lane helper process did not exit before update installation");
+
+    expect(kill.mock.calls).toEqual([
+      [101, "SIGTERM"],
+      [101, "SIGKILL"],
+    ]);
+    expect(wait).toHaveBeenCalledTimes(11);
+    expect(isUpdateInstallPending(marker, () => 4_001)).toBe(false);
   });
 });

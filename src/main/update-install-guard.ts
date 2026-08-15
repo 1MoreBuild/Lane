@@ -9,6 +9,8 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const INSTALL_MARKER_MAX_AGE_MS = 2 * 60 * 1_000;
+const FORCE_KILL_EXIT_POLL_ATTEMPTS = 10;
+const FORCE_KILL_EXIT_POLL_INTERVAL_MS = 100;
 
 interface UpdateInstallOptions {
   markerPath: string;
@@ -172,6 +174,31 @@ export async function prepareForUpdateInstall(
       options.canonicalizeExecutable,
     );
     signal(remaining, "SIGKILL", killProcess);
+    if (remaining.length > 0) {
+      let survivors = remaining;
+      for (
+        let attempt = 0;
+        attempt < FORCE_KILL_EXIT_POLL_ATTEMPTS && survivors.length > 0;
+        attempt += 1
+      ) {
+        await wait(FORCE_KILL_EXIT_POLL_INTERVAL_MS);
+        const running = new Set(
+          findAuxiliaryLaneProcessIds(
+            await listProcesses(),
+            options.executablePath,
+            options.currentPid,
+            currentUserId,
+            options.canonicalizeExecutable,
+          ),
+        );
+        survivors = survivors.filter((pid) => running.has(pid));
+      }
+      if (survivors.length > 0) {
+        throw new Error(
+          `Lane helper process${survivors.length === 1 ? "" : "es"} did not exit before update installation`,
+        );
+      }
+    }
     return [...new Set([...initial, ...remaining])];
   } catch (error) {
     removeMarker(options.markerPath);
