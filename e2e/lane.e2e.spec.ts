@@ -793,7 +793,10 @@ test.describe("Lane packaged product journeys", () => {
         ["/d", "/c", context.cliCommandPath, "--version"],
       );
       expect(version.code, version.stderr).toBe(0);
-      expect(version.stdout.toString("utf8")).toContain("0.1.7");
+      const packageVersion = JSON.parse(
+        await readFile(resolve("package.json"), "utf8"),
+      ) as { version: string };
+      expect(version.stdout.toString("utf8")).toContain(packageVersion.version);
       await page.keyboard.press("Escape");
     }
     await connectMockProvider(page, context.upstream);
