@@ -13,9 +13,6 @@ $paths = @(
   "release\win-unpacked\Lane.exe",
   "release\win-unpacked\resources\bin\lane-cli.exe",
   "release\win-unpacked\resources\bin\lane-native-host.exe",
-  "release\win-arm64-unpacked\Lane.exe",
-  "release\win-arm64-unpacked\resources\bin\lane-cli.exe",
-  "release\win-arm64-unpacked\resources\bin\lane-native-host.exe",
   "release\$installerName"
 )
 
@@ -58,4 +55,4 @@ if ($metadata -notmatch "(?m)^sha512: .+$") {
   throw "latest.yml does not contain an installer checksum"
 }
 
-Write-Output "Verified Azure Artifact Signing publisher, timestamps, x64, ARM64, NSIS, and updater artifacts for Lane $version"
+Write-Output "Verified Azure Artifact Signing publisher, timestamps, x64, NSIS, and updater artifacts for Lane $version"

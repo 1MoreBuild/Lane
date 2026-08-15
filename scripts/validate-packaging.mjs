@@ -117,8 +117,8 @@ if (
 }
 const winTarget = pkg.build?.win?.target?.[0];
 if (winTarget?.target !== "nsis") failures.push("missing Windows NSIS target");
-if (!winTarget?.arch?.includes("x64") || !winTarget?.arch?.includes("arm64")) {
-  failures.push("Windows x64 and arm64 must both be configured");
+if (winTarget?.arch?.length !== 1 || winTarget.arch[0] !== "x64") {
+  failures.push("Windows stable installer must target the verified x64 architecture");
 }
 if (pkg.build?.win?.icon !== "build/icon.ico") {
   failures.push("Windows package does not use the reviewed Lane icon");
@@ -140,21 +140,23 @@ if (
 if (
   !pkg.scripts?.["package:win:prepare"]?.includes("npm run build:icon") ||
   !pkg.scripts?.["package:win:prepare"]?.includes("npm run build:native-host") ||
-  !pkg.scripts?.["package:win:dist"]?.includes("--x64 --arm64") ||
+  !pkg.scripts?.["package:win:dist"]?.includes("--x64") ||
+  pkg.scripts?.["package:win:dist"]?.includes("--arm64") ||
   !pkg.scripts?.["package:win"]?.includes("package:win:prepare") ||
   !pkg.scripts?.["package:win"]?.includes("package:win:dist")
 ) {
-  failures.push("Windows preview package does not build the icon and dual-architecture NSIS");
+  failures.push("Windows preview package does not build the icon and verified x64 NSIS");
 }
 if (
   !pkg.scripts?.["package:win:release:prepare"]?.includes("build:release") ||
   !pkg.scripts?.["package:win:release:prepare"]?.includes("build:native-host") ||
-  !pkg.scripts?.["package:win:release:dist"]?.includes("--x64 --arm64") ||
+  !pkg.scripts?.["package:win:release:dist"]?.includes("--x64") ||
+  pkg.scripts?.["package:win:release:dist"]?.includes("--arm64") ||
   !pkg.scripts?.["package:win:release:dist"]?.includes("forceCodeSigning=true") ||
   !pkg.scripts?.["package:win:release"]?.includes("package:win:release:prepare") ||
   !pkg.scripts?.["package:win:release"]?.includes("package:win:release:dist")
 ) {
-  failures.push("Windows stable release is not updater-enabled, signed, and dual-architecture");
+  failures.push("Windows stable release is not updater-enabled, signed, and x64");
 }
 if (!pkg.scripts?.["e2e:nsis:win"]) {
   failures.push("missing installed Windows NSIS product E2E command");
@@ -215,11 +217,10 @@ if (
 }
 if (
   !windowsPreviewWorkflow.includes("runs-on: windows-latest") ||
-  !windowsPreviewWorkflow.includes("runs-on: windows-11-arm") ||
   !windowsPreviewWorkflow.includes("npm run package:win") ||
-  (windowsPreviewWorkflow.match(/npm run e2e:nsis:win/g) ?? []).length !== 2
+  (windowsPreviewWorkflow.match(/npm run e2e:nsis:win/g) ?? []).length !== 1
 ) {
-  failures.push("Windows preview workflow lacks installed x64 and ARM64 product E2E");
+  failures.push("Windows preview workflow lacks installed x64 product E2E");
 }
 if (!windowsPreviewWorkflow.includes("permissions:\n  contents: read")) {
   failures.push("Windows preview workflow permissions are not read-only");
@@ -388,18 +389,17 @@ if (
   !stableReleaseWorkflow.includes("runs-on: macos-15-intel") ||
   !stableReleaseWorkflow.includes("LANE_E2E_ARCH: x64") ||
   !stableReleaseWorkflow.includes(
-    "needs: [build, intel-e2e, windows-build, windows-arm64-e2e]",
+    "needs: [build, intel-e2e, windows-build]",
   )
 ) {
   failures.push("stable release can publish without product E2E on real Intel hardware");
 }
 if (
   !stableReleaseWorkflow.includes("runs-on: windows-latest") ||
-  !stableReleaseWorkflow.includes("runs-on: windows-11-arm") ||
-  (stableReleaseWorkflow.match(/npm run e2e:nsis:win/g) ?? []).length !== 2 ||
-  !stableReleaseWorkflow.includes("needs: windows-build")
+  (stableReleaseWorkflow.match(/npm run e2e:nsis:win/g) ?? []).length !== 1 ||
+  !stableReleaseWorkflow.includes("needs: [build, intel-e2e, windows-build]")
 ) {
-  failures.push("stable release can publish without Windows x64 and ARM64 product E2E");
+  failures.push("stable release can publish without Windows x64 product E2E");
 }
 const stablePublish = stableReleaseWorkflow.indexOf("gh release create");
 for (const requiredGate of [
@@ -417,4 +417,4 @@ for (const requiredGate of [
 if (failures.length > 0) {
   throw new Error(`Packaging validation failed: ${failures.join(", ")}`);
 }
-console.log("Packaging config valid: signed macOS and Windows updater releases with native architecture E2E; unsigned previews remain isolated.");
+console.log("Packaging config valid: signed dual-architecture macOS and verified x64 Windows updater releases; unsigned previews remain isolated.");

@@ -1,6 +1,6 @@
 {
   "name": "lane-local-ai-gateway",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "description": "A local, multi-provider AI gateway for desktop apps.",
   "author": "Haitian",
@@ -47,10 +47,10 @@
     "finalize:mac:update-metadata": "node scripts/finalize-mac-update-metadata.mjs",
     "package:mac:test": "npm run package:mac:arm64 && npm run package:mac:x64",
     "package:win:prepare": "npm run build:icon && npm run build:native-host && npm run build",
-    "package:win:dist": "electron-builder --win nsis --x64 --arm64 --publish never",
+    "package:win:dist": "electron-builder --win nsis --x64 --publish never",
     "package:win": "npm run package:win:prepare && npm run package:win:dist",
     "package:win:release:prepare": "npm run build:icon && npm run build:native-host && npm run build:release",
-    "package:win:release:dist": "electron-builder --config scripts/electron-builder.windows-release.mjs --win nsis --x64 --arm64 --publish never -c.win.forceCodeSigning=true",
+    "package:win:release:dist": "electron-builder --config scripts/electron-builder.windows-release.mjs --win nsis --x64 --publish never -c.win.forceCodeSigning=true",
     "package:win:release": "npm run package:win:release:prepare && npm run package:win:release:dist",
     "check": "npm run lint && npm run typecheck && npm test && npm run validate:packaging"
   },
@@ -144,8 +144,7 @@
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "arm64"
+            "x64"
           ]
         }
       ]
