@@ -59,10 +59,9 @@ export class LaneAutoUpdate {
     if (this.started) return;
     this.started = true;
     this.updater.autoDownload = false;
-    // The click is the user's consent to download. Keeping the standard
-    // install-on-quit fallback means a downloaded update is not stranded if an
-    // immediate relaunch is interrupted.
-    this.updater.autoInstallOnAppQuit = true;
+    // Installation must always pass through prepareToInstall so helper
+    // processes cannot keep the app bundle open during replacement.
+    this.updater.autoInstallOnAppQuit = false;
     this.updater.autoRunAppAfterInstall = true;
     this.updater.allowPrerelease = false;
     this.updater.logger = {
@@ -166,8 +165,12 @@ export class LaneAutoUpdate {
       this.onStateChanged({ status: "downloading", version, percent: 100 });
       this.logger.info(`Installing Lane ${version}`);
       await this.prepareToInstall();
+      // Preparation established the install guard, so the standard fallback is
+      // now safe if the immediate handoff is interrupted.
+      this.updater.autoInstallOnAppQuit = true;
       this.updater.quitAndInstall(false, true);
     } catch (error) {
+      this.updater.autoInstallOnAppQuit = false;
       this.installing = false;
       this.downloading = false;
       this.logger.warn(`Automatic update install failed: ${String(error)}`);

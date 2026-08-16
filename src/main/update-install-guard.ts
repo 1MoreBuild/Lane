@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   readFileSync,
   realpathSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -36,6 +38,23 @@ function removeMarker(markerPath: string): void {
     unlinkSync(markerPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+function writeMarkerAtomically(
+  markerPath: string,
+  marker: UpdateInstallMarker & { pid: number },
+): void {
+  const temporaryPath = `${markerPath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(marker)}\n`, {
+      mode: 0o600,
+      flag: "wx",
+    });
+    renameSync(temporaryPath, markerPath);
+  } catch (error) {
+    removeMarker(temporaryPath);
+    throw error;
   }
 }
 
@@ -166,14 +185,13 @@ export async function prepareForUpdateInstall(
   options: UpdateInstallOptions,
 ): Promise<number[]> {
   const now = options.now ?? Date.now;
-  writeFileSync(
+  writeMarkerAtomically(
     options.markerPath,
-    `${JSON.stringify({
+    {
       pid: options.currentPid,
       sourceVersion: options.sourceVersion,
       startedAt: now(),
-    })}\n`,
-    { mode: 0o600 },
+    },
   );
   if (options.platform !== "darwin") return [];
 
