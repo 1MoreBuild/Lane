@@ -54,6 +54,11 @@ export interface LaneCliOptions {
   request?: typeof requestCliControl;
   readStdin?: () => Promise<string>;
   io?: LaneCliIo;
+  unavailable?: {
+    code: string;
+    message: string;
+    fix: string;
+  };
 }
 
 export function installCliOutputErrorHandlers(
@@ -574,6 +579,19 @@ export async function runLaneCli(args: string[], options: LaneCliOptions): Promi
   if (parsed.command === "schema") {
     io.stdout(`${JSON.stringify(LANE_CLI_SCHEMA, null, parsed.mode === "json" ? 0 : 2)}\n`);
     return 0;
+  }
+  if (options.unavailable) {
+    writeError(
+      io,
+      parsed.mode,
+      errorPayload(
+        options.unavailable.code,
+        options.unavailable.message,
+        true,
+        options.unavailable.fix,
+      ),
+    );
+    return 8;
   }
 
   try {

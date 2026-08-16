@@ -5,6 +5,13 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { SecretStore } from "./secret-store.ts";
 
+export class InvalidStoredCredentialError extends Error {
+  constructor() {
+    super("Invalid stored credential");
+    this.name = "InvalidStoredCredentialError";
+  }
+}
+
 export class SecureCredentialStore implements CredentialStore {
   private readonly chains = new Map<string, Promise<unknown>>();
 
@@ -21,11 +28,11 @@ export class SecureCredentialStore implements CredentialStore {
     try {
       parsed = JSON.parse(value);
     } catch {
-      throw new Error("Invalid stored credential");
+      throw new InvalidStoredCredentialError();
     }
-    if (!parsed || typeof parsed !== "object") throw new Error("Invalid stored credential");
+    if (!parsed || typeof parsed !== "object") throw new InvalidStoredCredentialError();
     const type = (parsed as { type?: unknown }).type;
-    if (type !== "api_key" && type !== "oauth") throw new Error("Invalid credential type");
+    if (type !== "api_key" && type !== "oauth") throw new InvalidStoredCredentialError();
     return parsed as Credential;
   }
 

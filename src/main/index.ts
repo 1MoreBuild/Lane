@@ -1033,8 +1033,33 @@ if (cliMode) {
 }
 
 if (auxiliaryStartBlocked) {
-  console.error("Lane is installing an update. Try again in a moment.");
-  app.exit(75);
+  const message = "Lane is installing an update. Try again in a moment.";
+  const blocked = cliMode
+    ? runLaneCli(args, {
+        socketPath: getCliSocketPath(originalUserData),
+        version: app.getVersion(),
+        unavailable: {
+          code: "UPDATE_INSTALLING",
+          message,
+          fix: "Retry after Lane finishes updating.",
+        },
+      })
+    : app.whenReady().then(async () => {
+        app.dock?.hide();
+        return runLaneNativeHost({
+          callerOrigin: nativeCallerOrigin!,
+          connect: async () => ({
+            ok: false,
+            error: { code: "UPDATE_INSTALLING", message, retryable: true },
+          }),
+        });
+      });
+  blocked
+    .then((code) => app.exit(code))
+    .catch((error: unknown) => {
+      console.error(`Lane update guard failed: ${redact(error)}`);
+      app.exit(1);
+    });
 } else if (nativeCallerOrigin) {
   app
     .whenReady()

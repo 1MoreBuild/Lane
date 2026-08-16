@@ -15,7 +15,10 @@ import {
   TRANSLY_EXTENSION_ORIGINS,
 } from "../shared/native-messaging.ts";
 import { ConfigStore } from "./config-store.ts";
-import type { SecureCredentialStore } from "./credential-store.ts";
+import {
+  InvalidStoredCredentialError,
+  type SecureCredentialStore,
+} from "./credential-store.ts";
 import { GatewayServer, GatewayStartError, RuntimeHolder } from "./gateway.ts";
 import { LaneLogger, redact } from "./logger.ts";
 import {
@@ -272,7 +275,7 @@ export class AppCore {
     return await this.getState();
   }
 
-  async startOAuth(coordinator: OAuthCoordinator): Promise<LaneState> {
+  async startOAuth(coordinator: Pick<OAuthCoordinator, "login">): Promise<LaneState> {
     const { config } = this.requireInitialized();
     const provisional: ProviderConfig = {
       id: "openai-codex",
@@ -288,9 +291,13 @@ export class AppCore {
     let previousCredential: Credential | undefined;
     try {
       previousCredential = await this.credentials.read(provisional.id);
-    } catch {
+    } catch (error) {
       // A corrupt credential must not make the provider impossible to repair.
-      await this.credentials.delete(provisional.id);
+      if (error instanceof InvalidStoredCredentialError) {
+        await this.credentials.delete(provisional.id);
+      } else {
+        throw error;
+      }
     }
     await coordinator.login(models);
     const providers = [

@@ -366,6 +366,31 @@ describe("Lane CLI", () => {
     expect(output.stdout).toEqual([]);
   });
 
+  it("reports update installation as a retryable JSON service error", async () => {
+    const output = capture();
+    const request = vi.fn();
+    const code = await runLaneCli(["status", "--json", "--no-input"], {
+      socketPath: "unused",
+      version: "0.1.0",
+      io: output.io,
+      request,
+      unavailable: {
+        code: "UPDATE_INSTALLING",
+        message: "Lane is installing an update. Try again in a moment.",
+        fix: "Retry after Lane finishes updating.",
+      },
+    });
+
+    expect(code).toBe(8);
+    expect(request).not.toHaveBeenCalled();
+    expect(JSON.parse(output.stderr.join(""))).toEqual({
+      error: "UPDATE_INSTALLING",
+      message: "Lane is installing an update. Try again in a moment.",
+      fix: "Retry after Lane finishes updating.",
+      retryable: true,
+    });
+  });
+
   it("publishes a machine-readable command schema", async () => {
     const output = capture();
     const code = await runLaneCli(["schema", "--json"], {

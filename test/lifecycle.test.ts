@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AppCore } from "../src/main/app-core.ts";
 import { ConfigStore, defaultConfig } from "../src/main/config-store.ts";
 import { SecureCredentialStore } from "../src/main/credential-store.ts";
@@ -111,6 +111,37 @@ describe("persistence and lifecycle", () => {
     expect(await shared.credentials.read(provider.id)).toEqual({
       type: "api_key",
       key: "replacement-secret",
+    });
+    await app.shutdown();
+  });
+
+  it("preserves OAuth credentials when secure storage is temporarily unavailable", async () => {
+    const shared = await stores();
+    await shared.credentials.replace("openai-codex", {
+      type: "oauth",
+      access: "existing-access-token",
+      refresh: "existing-refresh-token",
+      expires: Date.now() + 60_000,
+    });
+    const app = new AppCore({ ...shared, discover });
+    await app.initialize();
+    const originalRead = shared.credentials.read.bind(shared.credentials);
+    const read = vi
+      .spyOn(shared.credentials, "read")
+      .mockRejectedValueOnce(new Error("User denied Keychain access"));
+    const login = vi.fn(async () => ({
+      type: "oauth" as const,
+      access: "new-access-token",
+      refresh: "new-refresh-token",
+      expires: Date.now() + 60_000,
+    }));
+
+    await expect(app.startOAuth({ login })).rejects.toThrow("Keychain");
+    expect(login).not.toHaveBeenCalled();
+    read.mockRestore();
+    expect(await originalRead("openai-codex")).toMatchObject({
+      type: "oauth",
+      access: "existing-access-token",
     });
     await app.shutdown();
   });
