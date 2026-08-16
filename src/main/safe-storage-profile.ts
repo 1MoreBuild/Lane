@@ -13,7 +13,6 @@ export interface LegacyKeychainRecord {
 export interface SafeStorageProfile {
   appName?: string;
   secretsFile: string;
-  notice?: string;
 }
 
 export function parseKeychainCreatedAt(output: string): number | undefined {
@@ -53,7 +52,6 @@ export function resolveSafeStorageProfile(input: {
   e2e: boolean;
   platform: NodeJS.Platform;
   legacy: LegacyKeychainRecord;
-  newProfileExists: boolean;
 }): SafeStorageProfile {
   if (input.e2e || input.platform !== "darwin") {
     return { secretsFile: "secrets.json" };
@@ -74,11 +72,5 @@ export function resolveSafeStorageProfile(input: {
   return {
     appName: "Lane",
     secretsFile: "secrets-v2.json",
-    ...(input.legacy.found && !input.newProfileExists
-      ? {
-          notice:
-            "Reconnect providers once to finish moving from a development build.",
-        }
-      : {}),
   };
 }

@@ -15,7 +15,10 @@ import {
   TRANSLY_EXTENSION_ORIGINS,
 } from "../shared/native-messaging.ts";
 import { ConfigStore } from "./config-store.ts";
-import type { SecureCredentialStore } from "./credential-store.ts";
+import {
+  InvalidStoredCredentialError,
+  type SecureCredentialStore,
+} from "./credential-store.ts";
 import { GatewayServer, GatewayStartError, RuntimeHolder } from "./gateway.ts";
 import { LaneLogger, redact } from "./logger.ts";
 import {
@@ -63,7 +66,6 @@ export interface AppCoreOptions {
   setLaunchAtLogin?: (enabled: boolean) => void;
   setDockIconVisible?: (enabled: boolean) => void | Promise<void>;
   setMenuBarIconVisible?: (enabled: boolean) => void | Promise<void>;
-  credentialStorageNotice?: string;
 }
 
 export class AppCore {
@@ -81,7 +83,6 @@ export class AppCore {
   private clientKey: string | undefined;
   private effectiveDefaultModel: string | undefined;
   private effectiveDefaultImageModel: string | undefined;
-  private readonly credentialStorageNotice: string | undefined;
   private credentialStorageError: string | undefined;
 
   constructor(options: AppCoreOptions) {
@@ -94,7 +95,6 @@ export class AppCore {
     this.setLoginItem = options.setLaunchAtLogin ?? (() => {});
     this.setDockIcon = options.setDockIconVisible ?? (() => {});
     this.setMenuBarIcon = options.setMenuBarIconVisible ?? (() => {});
-    this.credentialStorageNotice = options.credentialStorageNotice;
   }
 
   async initialize(): Promise<void> {
@@ -205,45 +205,78 @@ export class AppCore {
     if (!["openai", "anthropic", "openrouter", "custom-openai"].includes(input.kind)) {
       throw new Error("Unsupported provider type");
     }
+    const existing = input.providerId
+      ? config.providers.find((provider) => provider.id === input.providerId)
+      : undefined;
+    if (input.providerId && (!existing || existing.kind !== input.kind)) {
+      throw new Error("Provider to reconnect was not found");
+    }
     const baseUrl =
       input.kind === "custom-openai"
-        ? assertSafeUpstreamUrl(input.baseUrl ?? "").toString().replace(/\/$/, "")
+        ? assertSafeUpstreamUrl(input.baseUrl ?? existing?.baseUrl ?? "")
+            .toString()
+            .replace(/\/$/, "")
         : undefined;
     const discovered = await this.discover({
       kind: input.kind,
       apiKey: input.apiKey,
       ...(baseUrl ? { baseUrl } : {}),
     });
-    const id = this.providerId(input);
-    const previousCredential = await this.credentials.read(id);
-    await this.credentials.modify(id, async () => ({ type: "api_key", key: input.apiKey }));
+    const id = existing?.id ?? this.providerId(input);
+    const previousCredentialSnapshot = await this.credentials.snapshot(id);
+    try {
+      await this.credentials.read(id);
+    } catch (error) {
+      if (error instanceof InvalidStoredCredentialError || existing) {
+        // Explicit reconnection may replace an unreadable credential. The
+        // opaque encrypted snapshot is restored if any later step fails.
+      } else {
+        throw error;
+      }
+    }
+    await this.credentials.replace(id, { type: "api_key", key: input.apiKey });
     const provider: ProviderConfig = {
       id,
       kind: input.kind,
-      name: input.name?.trim() || DEFAULT_NAMES[input.kind],
+      name: input.name?.trim() || existing?.name || DEFAULT_NAMES[input.kind],
       ...(baseUrl ? { baseUrl } : {}),
       models: discovered.map((model) => model.id),
-      createdAt: Date.now(),
+      createdAt: existing?.createdAt ?? Date.now(),
     };
     const providers =
-      input.kind === "custom-openai"
+      input.kind === "custom-openai" && !existing
         ? [...config.providers, provider]
         : [...config.providers.filter((item) => item.id !== id), provider];
+    const providerModelPrefix = `${id}/`;
+    const keepDefault = (modelId: string | undefined): string | undefined => {
+      if (!existing || !modelId?.startsWith(providerModelPrefix)) return modelId;
+      return provider.models.includes(modelId.slice(providerModelPrefix.length))
+        ? modelId
+        : undefined;
+    };
+    const defaultModel = keepDefault(config.defaultModel);
+    const defaultImageModel = keepDefault(config.defaultImageModel);
+    const {
+      defaultModel: _previousDefaultModel,
+      defaultImageModel: _previousDefaultImageModel,
+      ...configWithoutDefaults
+    } = config;
     try {
-      await this.persist({ ...config, providers });
+      await this.persist({
+        ...configWithoutDefaults,
+        providers,
+        ...(defaultModel ? { defaultModel } : {}),
+        ...(defaultImageModel ? { defaultImageModel } : {}),
+      });
     } catch (error) {
-      if (previousCredential) {
-        await this.credentials.modify(id, async () => previousCredential);
-      } else {
-        await this.credentials.delete(id);
-      }
+      await this.credentials.restore(id, previousCredentialSnapshot);
       throw error;
     }
     this.logger.info(`Connected ${provider.name}; ${provider.models.length} models loaded`);
     return await this.getState();
   }
 
-  async startOAuth(coordinator: OAuthCoordinator): Promise<LaneState> {
+  async startOAuth(coordinator: Pick<OAuthCoordinator, "login">): Promise<LaneState> {
     const { config } = this.requireInitialized();
     const provisional: ProviderConfig = {
       id: "openai-codex",
@@ -256,20 +289,34 @@ export class AppCore {
       [...config.providers.filter((item) => item.id !== provisional.id), provisional],
       this.credentials,
     );
-    const previousCredential = await this.credentials.read(provisional.id);
-    await coordinator.login(models);
-    const providers = [
-      ...config.providers.filter((item) => item.id !== provisional.id),
-      provisional,
-    ];
+    const existing = config.providers.find(
+      (provider) => provider.id === provisional.id,
+    );
+    const previousCredentialSnapshot = await this.credentials.snapshot(
+      provisional.id,
+    );
     try {
+      await this.credentials.read(provisional.id);
+    } catch (error) {
+      // A corrupt credential must not make the provider impossible to repair.
+      if (error instanceof InvalidStoredCredentialError || existing) {
+        await this.credentials.delete(provisional.id);
+      } else {
+        throw error;
+      }
+    }
+    try {
+      await coordinator.login(models);
+      const providers = [
+        ...config.providers.filter((item) => item.id !== provisional.id),
+        provisional,
+      ];
       await this.persist({ ...config, providers });
     } catch (error) {
-      if (previousCredential) {
-        await this.credentials.modify(provisional.id, async () => previousCredential);
-      } else {
-        await this.credentials.delete(provisional.id);
-      }
+      await this.credentials.restore(
+        provisional.id,
+        previousCredentialSnapshot,
+      );
       throw error;
     }
     this.logger.info("Connected ChatGPT / Codex with OAuth");
@@ -522,7 +569,9 @@ export class AppCore {
             kind: provider.kind,
             name: provider.name,
             connected: credential !== undefined,
+            ...(!credential ? { needsReconnection: true } : {}),
             ...(credential ? { authType: credential.type } : {}),
+            ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
             models: [...provider.models],
           };
         } catch (error) {
@@ -531,6 +580,8 @@ export class AppCore {
             kind: provider.kind,
             name: provider.name,
             connected: false,
+            needsReconnection: true,
+            ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
             models: [...provider.models],
             error: redact(error),
           };
@@ -552,9 +603,6 @@ export class AppCore {
         available: this.credentialStorageError === undefined,
         ...(this.credentialStorageError
           ? { error: this.credentialStorageError }
-          : {}),
-        ...(!this.credentialStorageError && this.credentialStorageNotice
-          ? { notice: this.credentialStorageNotice }
           : {}),
       },
       providers: await this.providerStatuses(config),

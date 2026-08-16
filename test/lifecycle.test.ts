@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AppCore } from "../src/main/app-core.ts";
 import { ConfigStore, defaultConfig } from "../src/main/config-store.ts";
 import { SecureCredentialStore } from "../src/main/credential-store.ts";
@@ -35,6 +35,210 @@ describe("persistence and lifecycle", () => {
       showDockIcon: true,
       showMenuBarIcon: true,
     });
+  });
+
+  it("marks only providers with missing credentials for reconnection", async () => {
+    const shared = await stores();
+    const app = new AppCore({ ...shared, discover });
+    await app.initialize();
+    let state = await app.addProvider({
+      kind: "custom-openai",
+      name: "Local mock",
+      apiKey: "first-secret",
+      baseUrl: "http://127.0.0.1:9999/v1",
+    });
+    const provider = state.providers[0]!;
+    await shared.credentials.delete(provider.id);
+
+    state = await app.getState();
+    expect(state.credentialStorage).toEqual({ available: true });
+    expect(state.providers[0]).toMatchObject({
+      id: provider.id,
+      connected: false,
+      needsReconnection: true,
+    });
+
+    state = await app.addProvider({
+      providerId: provider.id,
+      kind: "custom-openai",
+      apiKey: "replacement-secret",
+      baseUrl: "http://127.0.0.1:9999/v1",
+    });
+    expect(state.providers).toHaveLength(1);
+    expect(state.providers[0]).toMatchObject({
+      id: provider.id,
+      name: "Local mock",
+      connected: true,
+    });
+    expect(state.providers[0]?.needsReconnection).toBeUndefined();
+    await app.shutdown();
+  });
+
+  it("repairs a provider with an unreadable stored credential", async () => {
+    const shared = await stores();
+    const app = new AppCore({ ...shared, discover });
+    await app.initialize();
+    let state = await app.addProvider({
+      kind: "custom-openai",
+      name: "Local mock",
+      apiKey: "first-secret",
+      baseUrl: "http://127.0.0.1:9999/v1",
+    });
+    const provider = state.providers[0]!;
+    await shared.secretStore.set(`credential:${provider.id}`, "not-json");
+
+    state = await app.getState();
+    expect(state.providers[0]).toMatchObject({
+      id: provider.id,
+      connected: false,
+      needsReconnection: true,
+      baseUrl: "http://127.0.0.1:9999/v1",
+      error: "Invalid stored credential",
+    });
+
+    state = await app.addProvider({
+      providerId: provider.id,
+      kind: "custom-openai",
+      apiKey: "replacement-secret",
+      baseUrl: "http://127.0.0.1:9999/v1",
+    });
+    expect(state.providers).toHaveLength(1);
+    expect(state.providers[0]).toMatchObject({
+      id: provider.id,
+      name: "Local mock",
+      connected: true,
+    });
+    expect(await shared.credentials.read(provider.id)).toEqual({
+      type: "api_key",
+      key: "replacement-secret",
+    });
+    await app.shutdown();
+  });
+
+  it("preserves OAuth credentials when secure storage is temporarily unavailable", async () => {
+    const shared = await stores();
+    await shared.credentials.replace("openai-codex", {
+      type: "oauth",
+      access: "existing-access-token",
+      refresh: "existing-refresh-token",
+      expires: Date.now() + 60_000,
+    });
+    const app = new AppCore({ ...shared, discover });
+    await app.initialize();
+    const originalRead = shared.credentials.read.bind(shared.credentials);
+    const read = vi
+      .spyOn(shared.credentials, "read")
+      .mockRejectedValueOnce(new Error("User denied Keychain access"));
+    const login = vi.fn(async () => ({
+      type: "oauth" as const,
+      access: "new-access-token",
+      refresh: "new-refresh-token",
+      expires: Date.now() + 60_000,
+    }));
+
+    await expect(app.startOAuth({ login })).rejects.toThrow("Keychain");
+    expect(login).not.toHaveBeenCalled();
+    read.mockRestore();
+    expect(await originalRead("openai-codex")).toMatchObject({
+      type: "oauth",
+      access: "existing-access-token",
+    });
+    await app.shutdown();
+  });
+
+  it("lets an explicit API-key reconnect replace an unreadable credential", async () => {
+    const shared = await stores();
+    const app = new AppCore({ ...shared, discover });
+    await app.initialize();
+    const connected = await app.addProvider({
+      kind: "openai",
+      name: "Existing provider",
+      apiKey: "existing-secret",
+    });
+    const providerId = connected.providers[0]!.id;
+    const originalRead = shared.credentials.read.bind(shared.credentials);
+    const read = vi
+      .spyOn(shared.credentials, "read")
+      .mockRejectedValueOnce(new Error("User denied Keychain access"));
+
+    const repaired = await app.addProvider({
+      providerId,
+      kind: "openai",
+      apiKey: "replacement-secret",
+    });
+    read.mockRestore();
+    expect(repaired.providers).toHaveLength(1);
+    expect(await originalRead(providerId)).toEqual({
+      type: "api_key",
+      key: "replacement-secret",
+    });
+    await app.shutdown();
+  });
+
+  it("restores an opaque API-key credential when reconnection persistence fails", async () => {
+    const shared = await stores();
+    const app = new AppCore({ ...shared, discover });
+    await app.initialize();
+    const connected = await app.addProvider({
+      kind: "openai",
+      name: "Existing provider",
+      apiKey: "existing-secret",
+    });
+    const providerId = connected.providers[0]!.id;
+    const originalRead = shared.credentials.read.bind(shared.credentials);
+    const read = vi
+      .spyOn(shared.credentials, "read")
+      .mockRejectedValueOnce(new Error("User denied Keychain access"));
+    const save = vi
+      .spyOn(shared.configStore, "save")
+      .mockRejectedValueOnce(new Error("settings disk full"));
+
+    await expect(
+      app.addProvider({
+        providerId,
+        kind: "openai",
+        apiKey: "replacement-secret",
+      }),
+    ).rejects.toThrow("settings disk full");
+
+    read.mockRestore();
+    save.mockRestore();
+    expect(await originalRead(providerId)).toEqual({
+      type: "api_key",
+      key: "existing-secret",
+    });
+    await app.shutdown();
+  });
+
+  it("clears provider defaults that disappear during reconnection", async () => {
+    const shared = await stores();
+    let models = [
+      { id: "old-model", name: "Old model" },
+      { id: "old-image", name: "Old image" },
+    ];
+    const app = new AppCore({ ...shared, discover: async () => models });
+    await app.initialize();
+    let state = await app.addProvider({
+      kind: "custom-openai",
+      name: "Local mock",
+      apiKey: "first-secret",
+      baseUrl: "http://127.0.0.1:9999/v1",
+    });
+    const providerId = state.providers[0]!.id;
+    await app.setDefaultModel(`${providerId}/old-model`);
+    await app.setDefaultImageModel(`${providerId}/old-image`);
+
+    models = [{ id: "new-model", name: "New model" }];
+    state = await app.addProvider({
+      providerId,
+      kind: "custom-openai",
+      apiKey: "replacement-secret",
+    });
+
+    expect(state.defaultModel).toBeUndefined();
+    expect(state.defaultImageModel).toBeUndefined();
+    expect(state.providers[0]?.models).toEqual(["new-model"]);
+    await app.shutdown();
   });
 
   it("opens with an ephemeral client key when secure storage is denied", async () => {

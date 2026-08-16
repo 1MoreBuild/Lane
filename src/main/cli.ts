@@ -4,6 +4,7 @@ import type {
 } from "./cli-control.ts";
 import { requestCliControl } from "./cli-control.ts";
 import type { ReasoningEffort } from "../shared/contracts.ts";
+import { defaultReadStdin } from "./cli-stdin.ts";
 
 const TOP_LEVEL_COMMANDS = [
   "status",
@@ -53,6 +54,11 @@ export interface LaneCliOptions {
   request?: typeof requestCliControl;
   readStdin?: () => Promise<string>;
   io?: LaneCliIo;
+  unavailable?: {
+    code: string;
+    message: string;
+    fix: string;
+  };
 }
 
 export function installCliOutputErrorHandlers(
@@ -108,7 +114,7 @@ Gateway:
 
 Providers:
   providers [list]               List configured providers
-  providers add --kind <kind> --api-key-stdin [--name <name>] [--base-url <url>]
+  providers add --kind <kind> --api-key-stdin [--id <existing-id>] [--name <name>] [--base-url <url>]
   providers remove --id <id> --force
   providers login                Start ChatGPT / Codex browser OAuth
 
@@ -174,6 +180,7 @@ export const LANE_CLI_SCHEMA = {
     "--plain": "Stable line-oriented output",
     "--no-input": "Disable prompts",
     "--api-key-stdin": "Read a provider API key from stdin",
+    "--id": "Select a configured provider or model",
     "--force": "Confirm a destructive operation",
   },
   exit_codes: {
@@ -380,10 +387,22 @@ function humanOutput(command: LaneCliCommand, value: unknown): string {
       : "No models available.\n";
   }
   if (command === "providers-list") {
-    const providers = value as Array<{ id: string; name: string; connected: boolean }>;
+    const providers = value as Array<{
+      id: string;
+      name: string;
+      connected: boolean;
+      needs_reconnection?: boolean;
+    }>;
     return providers.length
       ? `${providers
-          .map((provider) => `${provider.id}\t${provider.name}\t${provider.connected ? "connected" : "disconnected"}`)
+          .map((provider) => {
+            const status = provider.connected
+              ? "connected"
+              : provider.needs_reconnection
+                ? "needs reconnection"
+                : "disconnected";
+            return `${provider.id}\t${provider.name}\t${status}`;
+          })
           .join("\n")}\n`
       : "No providers configured.\n";
   }
@@ -407,13 +426,6 @@ function humanOutput(command: LaneCliCommand, value: unknown): string {
   return `${messages[command] ?? "Done."}\n`;
 }
 
-async function defaultReadStdin(): Promise<string> {
-  process.stdin.setEncoding("utf8");
-  let value = "";
-  for await (const chunk of process.stdin) value += chunk;
-  return value;
-}
-
 async function controlRequest(
   parsed: ParsedCli,
   options: LaneCliOptions,
@@ -426,8 +438,8 @@ async function controlRequest(
       if (!parsed.apiKeyStdin) {
         throw new Error("Provider API keys must be supplied with --api-key-stdin");
       }
-      if (parsed.kind === "custom-openai" && !parsed.baseUrl) {
-        throw new Error("--base-url is required for custom-openai");
+      if (parsed.kind === "custom-openai" && !parsed.baseUrl && !parsed.id) {
+        throw new Error("--base-url is required for a new custom-openai provider");
       }
       const apiKey = (await (options.readStdin ?? defaultReadStdin)()).trim();
       if (!apiKey) throw new Error("No API key was received on stdin");
@@ -437,6 +449,7 @@ async function controlRequest(
           provider: {
             kind: parsed.kind as "openai" | "anthropic" | "openrouter" | "custom-openai",
             apiKey,
+            ...(parsed.id ? { providerId: parsed.id } : {}),
             ...(parsed.name ? { name: parsed.name } : {}),
             ...(parsed.baseUrl ? { baseUrl: parsed.baseUrl } : {}),
           },
@@ -566,6 +579,19 @@ export async function runLaneCli(args: string[], options: LaneCliOptions): Promi
   if (parsed.command === "schema") {
     io.stdout(`${JSON.stringify(LANE_CLI_SCHEMA, null, parsed.mode === "json" ? 0 : 2)}\n`);
     return 0;
+  }
+  if (options.unavailable) {
+    writeError(
+      io,
+      parsed.mode,
+      errorPayload(
+        options.unavailable.code,
+        options.unavailable.message,
+        true,
+        options.unavailable.fix,
+      ),
+    );
+    return 8;
   }
 
   try {

@@ -39,8 +39,9 @@ macOS development builds use a separate `safeStorage` identity from public
 builds. A signed release does not read Keychain material left by an older
 ad-hoc build, because doing so produces a misleading system password prompt.
 Public settings survive that boundary, while providers must be reconnected
-once. If secure storage is locked or access is denied, Lane opens without
-provider credentials and shows recovery guidance instead of terminating.
+once. Lane marks only the affected provider for reconnection. If secure storage
+is locked or access is denied, Lane opens without provider credentials and shows
+recovery guidance instead of terminating.
 
 Packaged E2E runs use an isolated AES-GCM backend so unsigned automation never
 prompts for or opens a user's Keychain. That backend is accepted only when the
@@ -62,8 +63,13 @@ the optional shell command is a separate user action.
 
 `lane connection` deliberately returns the Lane client key because an authorized
 agent needs it to call the gateway. Provider API keys are accepted only over
-stdin and are write-only after storage. CLI responses omit stored provider API
-keys, OAuth tokens, prompt content, and arbitrary UI settings. Destructive
+stdin and are write-only after storage. On Windows, the native console launcher
+forwards that input through a random one-shot named pipe whose ACL permits only
+the current user and Windows SYSTEM, because GUI-subsystem executables do not
+reliably inherit the console's stdin handle. The key remains in memory and is
+never placed in a file, environment variable, or argument. CLI
+responses omit stored provider API keys, OAuth tokens, prompt content, and
+arbitrary UI settings. Destructive
 provider removal requires `--force`. Activity output uses Lane's existing
 redacted log. The command schema identifies secrets and mutations so agents do
 not need to infer them.
@@ -156,6 +162,10 @@ build marker. Development, E2E, local packages, and unsigned prereleases do
 not check for updates. The client never embeds a GitHub token. The user starts
 the download from Lane's update control; progress is shown in place, and the
 signed update installs and restarts Lane when the download completes.
+On macOS, the install window blocks new Lane CLI and Native Messaging helpers
+and stops only processes whose command exactly matches the current Lane app
+executable. It never invokes a shell, matches a process-name wildcard, or
+terminates an unrelated port owner.
 
 The release workflow refuses to publish unless macOS signing/notarization and
 Azure Artifact Signing credentials are present. It verifies the expected signing

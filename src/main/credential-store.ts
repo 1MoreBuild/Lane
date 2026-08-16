@@ -3,7 +3,18 @@ import type {
   CredentialInfo,
   CredentialStore,
 } from "@earendil-works/pi-ai";
-import type { SecretStore } from "./secret-store.ts";
+import {
+  InvalidSecretCiphertextError,
+  type SecretSnapshot,
+  type SecretStore,
+} from "./secret-store.ts";
+
+export class InvalidStoredCredentialError extends Error {
+  constructor() {
+    super("Invalid stored credential");
+    this.name = "InvalidStoredCredentialError";
+  }
+}
 
 export class SecureCredentialStore implements CredentialStore {
   private readonly chains = new Map<string, Promise<unknown>>();
@@ -15,12 +26,25 @@ export class SecureCredentialStore implements CredentialStore {
   }
 
   async read(providerId: string): Promise<Credential | undefined> {
-    const value = await this.secrets.get(this.key(providerId));
+    let value: string | undefined;
+    try {
+      value = await this.secrets.get(this.key(providerId));
+    } catch (error) {
+      if (error instanceof InvalidSecretCiphertextError) {
+        throw new InvalidStoredCredentialError();
+      }
+      throw error;
+    }
     if (!value) return undefined;
-    const parsed: unknown = JSON.parse(value);
-    if (!parsed || typeof parsed !== "object") throw new Error("Invalid stored credential");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new InvalidStoredCredentialError();
+    }
+    if (!parsed || typeof parsed !== "object") throw new InvalidStoredCredentialError();
     const type = (parsed as { type?: unknown }).type;
-    if (type !== "api_key" && type !== "oauth") throw new Error("Invalid credential type");
+    if (type !== "api_key" && type !== "oauth") throw new InvalidStoredCredentialError();
     return parsed as Credential;
   }
 
@@ -33,6 +57,23 @@ export class SecureCredentialStore implements CredentialStore {
       if (credential) result.push({ providerId, type: credential.type });
     }
     return result;
+  }
+
+  async snapshot(providerId: string): Promise<SecretSnapshot> {
+    return await this.secrets.snapshot(this.key(providerId));
+  }
+
+  async restore(providerId: string, snapshot: SecretSnapshot): Promise<void> {
+    const previous = this.chains.get(providerId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(() => this.secrets.restore(this.key(providerId), snapshot));
+    this.chains.set(providerId, next);
+    try {
+      await next;
+    } finally {
+      if (this.chains.get(providerId) === next) this.chains.delete(providerId);
+    }
   }
 
   async modify(
@@ -51,6 +92,21 @@ export class SecureCredentialStore implements CredentialStore {
     this.chains.set(providerId, next);
     try {
       return await next;
+    } finally {
+      if (this.chains.get(providerId) === next) this.chains.delete(providerId);
+    }
+  }
+
+  async replace(providerId: string, credential: Credential): Promise<void> {
+    const previous = this.chains.get(providerId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(() =>
+        this.secrets.set(this.key(providerId), JSON.stringify(credential)),
+      );
+    this.chains.set(providerId, next);
+    try {
+      await next;
     } finally {
       if (this.chains.get(providerId) === next) this.chains.delete(providerId);
     }

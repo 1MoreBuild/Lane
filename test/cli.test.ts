@@ -55,6 +55,30 @@ describe("Lane CLI", () => {
     removeHandlers();
   });
 
+  it("identifies providers that need reconnection", async () => {
+    const output = capture();
+    const code = await runLaneCli(["providers", "list"], {
+      socketPath: "unused",
+      version: "0.1.0",
+      io: output.io,
+      request: async () => ({
+        ok: true,
+        data: [
+          {
+            id: "custom-1",
+            name: "Local mock",
+            connected: false,
+            needs_reconnection: true,
+          },
+        ],
+      }),
+    });
+    expect(code).toBe(0);
+    expect(output.stdout.join("")).toBe(
+      "custom-1\tLocal mock\tneeds reconnection\n",
+    );
+  });
+
   it("does not swallow unexpected output errors", () => {
     const stdout = new PassThrough();
     const removeHandlers = installCliOutputErrorHandlers(() => {}, [stdout]);
@@ -231,6 +255,8 @@ describe("Lane CLI", () => {
         "openai",
         "--name",
         "Work",
+        "--id",
+        "provider-1",
         "--api-key-stdin",
         "--json",
       ],
@@ -251,6 +277,7 @@ describe("Lane CLI", () => {
           provider: {
             kind: "openai",
             name: "Work",
+            providerId: "provider-1",
             apiKey: "sk-test-secret",
           },
         },
@@ -258,6 +285,48 @@ describe("Lane CLI", () => {
       60_000,
     );
     expect(output.stdout.join("")).not.toContain("sk-test-secret");
+  });
+
+  it("reconnects an existing custom provider without repeating its base URL", async () => {
+    const output = capture();
+    const request = vi.fn(async () => ({
+      ok: true as const,
+      data: { providers: [] },
+    }));
+    const code = await runLaneCli(
+      [
+        "providers",
+        "add",
+        "--kind",
+        "custom-openai",
+        "--id",
+        "custom-1",
+        "--api-key-stdin",
+        "--json",
+      ],
+      {
+        socketPath: "unused",
+        version: "0.1.0",
+        io: output.io,
+        readStdin: async () => "replacement-secret\n",
+        request,
+      },
+    );
+    expect(code).toBe(0);
+    expect(request).toHaveBeenCalledWith(
+      "unused",
+      {
+        command: "providers-add",
+        params: {
+          provider: {
+            kind: "custom-openai",
+            providerId: "custom-1",
+            apiKey: "replacement-secret",
+          },
+        },
+      },
+      60_000,
+    );
   });
 
   it("requires force before removing a provider", async () => {
@@ -295,6 +364,31 @@ describe("Lane CLI", () => {
       retryable: false,
     });
     expect(output.stdout).toEqual([]);
+  });
+
+  it("reports update installation as a retryable JSON service error", async () => {
+    const output = capture();
+    const request = vi.fn();
+    const code = await runLaneCli(["status", "--json", "--no-input"], {
+      socketPath: "unused",
+      version: "0.1.0",
+      io: output.io,
+      request,
+      unavailable: {
+        code: "UPDATE_INSTALLING",
+        message: "Lane is installing an update. Try again in a moment.",
+        fix: "Retry after Lane finishes updating.",
+      },
+    });
+
+    expect(code).toBe(8);
+    expect(request).not.toHaveBeenCalled();
+    expect(JSON.parse(output.stderr.join(""))).toEqual({
+      error: "UPDATE_INSTALLING",
+      message: "Lane is installing an update. Try again in a moment.",
+      fix: "Retry after Lane finishes updating.",
+      retryable: true,
+    });
   });
 
   it("publishes a machine-readable command schema", async () => {

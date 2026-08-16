@@ -85,7 +85,12 @@ available in Transly when Lane is not installed.
 - `LaneCliControlServer` owns the private same-user control socket. The CLI has a
   versioned schema, deterministic JSON/plain output, semantic exit codes, and no
   prompts in agent mode. API-key providers accept secrets only over stdin; the
+  Windows console launcher forwards that input through a random, current-user
+  named pipe so it is neither written to disk nor placed on the command line. The
   secret is stored by the same main-process credential path used by the UI.
+  Provider listings distinguish disconnected providers that need reconnection;
+  `providers add --id` repairs that provider in place instead of creating a
+  second configuration.
 - `NativeMessagingInstaller` registers the packaged executable for the explicit
   Transly extension-ID allowlist. Native-host mode validates Chrome's caller
   origin and forwards that exact verified origin when requesting a browser-client
@@ -110,7 +115,10 @@ available in Transly when Lane is not installed.
   development, E2E, local package, and prerelease builds never contact the
   update feed. A completed
   download also retains the standard install-on-quit fallback if the immediate
-  relaunch is interrupted.
+  relaunch is interrupted. Before a macOS install, Lane briefly blocks new CLI
+  and Native Messaging helper launches and stops existing helpers that use the
+  app executable; otherwise Squirrel/ShipIt can reject the replacement as an
+  app-still-running update.
 - The protocol module maps both OpenAI Responses and Chat Completions onto the
   same canonical request/event model. User content retains ordered text and
   image parts; image data URLs are decoded into pi-ai's provider-neutral image
