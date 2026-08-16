@@ -85,9 +85,9 @@ available in Transly when Lane is not installed.
 - `LaneCliControlServer` owns the private same-user control socket. The CLI has a
   versioned schema, deterministic JSON/plain output, semantic exit codes, and no
   prompts in agent mode. API-key providers accept secrets only over stdin; the
-  Windows console launcher uses a short-lived user-temp bridge so Electron can
-  receive that stdin without putting it on the command line. The secret is
-  stored by the same main-process credential path used by the UI.
+  Windows console launcher forwards that input through an inherited anonymous
+  pipe so it is neither written to disk nor placed on the command line. The
+  secret is stored by the same main-process credential path used by the UI.
   Provider listings distinguish disconnected providers that need reconnection;
   `providers add --id` repairs that provider in place instead of creating a
   second configuration.

@@ -64,9 +64,9 @@ the optional shell command is a separate user action.
 `lane connection` deliberately returns the Lane client key because an authorized
 agent needs it to call the gateway. Provider API keys are accepted only over
 stdin and are write-only after storage. On Windows, the native console launcher
-bridges that input through a randomly named file in the user's temporary
-directory because GUI-subsystem executables do not reliably inherit stdin; Lane
-validates the location and removes the file immediately after reading it. CLI
+forwards that input through an inherited anonymous pipe because GUI-subsystem
+executables do not reliably inherit the console's stdin handle. The key remains
+in memory and is never placed in a file, environment variable, or argument. CLI
 responses omit stored provider API keys, OAuth tokens, prompt content, and
 arbitrary UI settings. Destructive
 provider removal requires `--force`. Activity output uses Lane's existing

@@ -1,6 +1,3 @@
-import { readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { basename, dirname, resolve } from "node:path";
 import type {
   CliControlRequest,
   CliControlResponse,
@@ -424,47 +421,10 @@ function humanOutput(command: LaneCliCommand, value: unknown): string {
 }
 
 async function defaultReadStdin(): Promise<string> {
-  const bridgedStdinPath = process.env.LANE_CLI_STDIN_FILE;
-  if (bridgedStdinPath) {
-    const temporaryDirectories = [
-      tmpdir(),
-      ...(process.platform === "win32"
-        ? [process.env.TEMP, process.env.TMP].filter(
-            (value): value is string => Boolean(value),
-          )
-        : []),
-    ];
-    return await readBridgedCliStdin(bridgedStdinPath, temporaryDirectories);
-  }
   process.stdin.setEncoding("utf8");
   let value = "";
   for await (const chunk of process.stdin) value += chunk;
   return value;
-}
-
-export async function readBridgedCliStdin(
-  path: string,
-  temporaryDirectories: string | readonly string[] = tmpdir(),
-): Promise<string> {
-  const resolvedPath = resolve(path);
-  const comparablePath = (value: string) =>
-    process.platform === "win32" ? value.toLowerCase() : value;
-  const allowedDirectories = (
-    typeof temporaryDirectories === "string"
-      ? [temporaryDirectories]
-      : temporaryDirectories
-  ).map((directory) => comparablePath(resolve(directory)));
-  if (
-    !allowedDirectories.includes(comparablePath(dirname(resolvedPath))) ||
-    !basename(resolvedPath).startsWith("lane-cli-stdin-")
-  ) {
-    throw new Error("Invalid Lane CLI stdin bridge path");
-  }
-  try {
-    return await readFile(resolvedPath, "utf8");
-  } finally {
-    await rm(resolvedPath, { force: true });
-  }
 }
 
 async function controlRequest(
