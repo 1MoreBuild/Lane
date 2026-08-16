@@ -239,8 +239,27 @@ export class AppCore {
       input.kind === "custom-openai" && !existing
         ? [...config.providers, provider]
         : [...config.providers.filter((item) => item.id !== id), provider];
+    const providerModelPrefix = `${id}/`;
+    const keepDefault = (modelId: string | undefined): string | undefined => {
+      if (!existing || !modelId?.startsWith(providerModelPrefix)) return modelId;
+      return provider.models.includes(modelId.slice(providerModelPrefix.length))
+        ? modelId
+        : undefined;
+    };
+    const defaultModel = keepDefault(config.defaultModel);
+    const defaultImageModel = keepDefault(config.defaultImageModel);
+    const {
+      defaultModel: _previousDefaultModel,
+      defaultImageModel: _previousDefaultImageModel,
+      ...configWithoutDefaults
+    } = config;
     try {
-      await this.persist({ ...config, providers });
+      await this.persist({
+        ...configWithoutDefaults,
+        providers,
+        ...(defaultModel ? { defaultModel } : {}),
+        ...(defaultImageModel ? { defaultImageModel } : {}),
+      });
     } catch (error) {
       if (previousCredential) {
         await this.credentials.modify(id, async () => previousCredential);

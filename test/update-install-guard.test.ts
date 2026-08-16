@@ -6,6 +6,7 @@ import {
   clearUpdateInstallPending,
   findAuxiliaryLaneProcessIds,
   isUpdateInstallPending,
+  isUpdateSourceVersionPending,
   prepareForUpdateInstall,
 } from "../src/main/update-install-guard.ts";
 
@@ -79,6 +80,7 @@ describe("update install guard", () => {
       markerPath: marker,
       executablePath: executable,
       currentPid: 100,
+      sourceVersion: "0.1.11",
       currentUserId: 501,
       platform: "darwin",
       listProcesses,
@@ -114,6 +116,7 @@ describe("update install guard", () => {
       markerPath: marker,
       executablePath: executable,
       currentPid: 100,
+      sourceVersion: "0.1.11",
       currentUserId: 501,
       platform: "darwin",
       listProcesses: async () => processTables.shift() ?? `501 100 ${executable}`,
@@ -133,6 +136,7 @@ describe("update install guard", () => {
       markerPath: marker,
       executablePath: "/Applications/Lane.app/Contents/MacOS/Lane",
       currentPid: 100,
+      sourceVersion: "0.1.11",
       platform: "linux",
       listProcesses: async () => "",
       killProcess: vi.fn(),
@@ -147,6 +151,7 @@ describe("update install guard", () => {
       markerPath: marker,
       executablePath: "/Applications/Lane.app/Contents/MacOS/Lane",
       currentPid: 100,
+      sourceVersion: "0.1.11",
       platform: "linux",
       listProcesses: async () => "",
       killProcess: vi.fn(),
@@ -157,6 +162,21 @@ describe("update install guard", () => {
     expect(isUpdateInstallPending(marker, () => 2_001)).toBe(false);
   });
 
+  it("blocks only the source version while an update install is pending", async () => {
+    const marker = await markerPath();
+    await prepareForUpdateInstall({
+      markerPath: marker,
+      executablePath: "/Applications/Lane.app/Contents/MacOS/Lane",
+      currentPid: 100,
+      sourceVersion: "0.1.11",
+      platform: "linux",
+      now: () => 2_000,
+    });
+
+    expect(isUpdateSourceVersionPending(marker, "0.1.11", () => 2_001)).toBe(true);
+    expect(isUpdateSourceVersionPending(marker, "0.1.12", () => 2_001)).toBe(false);
+  });
+
   it("clears the install marker when auxiliary process discovery fails", async () => {
     const marker = await markerPath();
 
@@ -165,6 +185,7 @@ describe("update install guard", () => {
         markerPath: marker,
         executablePath: "/Applications/Lane.app/Contents/MacOS/Lane",
         currentPid: 100,
+        sourceVersion: "0.1.11",
         currentUserId: 501,
         platform: "darwin",
         listProcesses: async () => {
@@ -191,6 +212,7 @@ describe("update install guard", () => {
         markerPath: marker,
         executablePath: executable,
         currentPid: 100,
+        sourceVersion: "0.1.11",
         currentUserId: 501,
         platform: "darwin",
         listProcesses: async () => table,

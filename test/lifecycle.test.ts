@@ -115,6 +115,37 @@ describe("persistence and lifecycle", () => {
     await app.shutdown();
   });
 
+  it("clears provider defaults that disappear during reconnection", async () => {
+    const shared = await stores();
+    let models = [
+      { id: "old-model", name: "Old model" },
+      { id: "old-image", name: "Old image" },
+    ];
+    const app = new AppCore({ ...shared, discover: async () => models });
+    await app.initialize();
+    let state = await app.addProvider({
+      kind: "custom-openai",
+      name: "Local mock",
+      apiKey: "first-secret",
+      baseUrl: "http://127.0.0.1:9999/v1",
+    });
+    const providerId = state.providers[0]!.id;
+    await app.setDefaultModel(`${providerId}/old-model`);
+    await app.setDefaultImageModel(`${providerId}/old-image`);
+
+    models = [{ id: "new-model", name: "New model" }];
+    state = await app.addProvider({
+      providerId,
+      kind: "custom-openai",
+      apiKey: "replacement-secret",
+    });
+
+    expect(state.defaultModel).toBeUndefined();
+    expect(state.defaultImageModel).toBeUndefined();
+    expect(state.providers[0]?.models).toEqual(["new-model"]);
+    await app.shutdown();
+  });
+
   it("opens with an ephemeral client key when secure storage is denied", async () => {
     const settingsPath = await tempPath("denied-settings.json");
     const secretsPath = settingsPath.replace("settings.json", "secrets.json");

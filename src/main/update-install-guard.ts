@@ -16,6 +16,7 @@ interface UpdateInstallOptions {
   markerPath: string;
   executablePath: string;
   currentPid: number;
+  sourceVersion: string;
   currentUserId?: number;
   platform: NodeJS.Platform;
   listProcesses?: () => Promise<string>;
@@ -25,11 +26,50 @@ interface UpdateInstallOptions {
   canonicalizeExecutable?: (path: string) => string;
 }
 
+interface UpdateInstallMarker {
+  startedAt: number;
+  sourceVersion?: string;
+}
+
 function removeMarker(markerPath: string): void {
   try {
     unlinkSync(markerPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+function readPendingMarker(
+  markerPath: string,
+  now: () => number,
+): UpdateInstallMarker | undefined {
+  try {
+    const value = JSON.parse(readFileSync(markerPath, "utf8")) as {
+      startedAt?: unknown;
+      sourceVersion?: unknown;
+    };
+    if (typeof value.startedAt !== "number") {
+      removeMarker(markerPath);
+      return undefined;
+    }
+    const age = now() - value.startedAt;
+    if (age < 0 || age > INSTALL_MARKER_MAX_AGE_MS) {
+      removeMarker(markerPath);
+      return undefined;
+    }
+    return {
+      startedAt: value.startedAt,
+      ...(typeof value.sourceVersion === "string"
+        ? { sourceVersion: value.sourceVersion }
+        : {}),
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    if (error instanceof SyntaxError) {
+      removeMarker(markerPath);
+      return undefined;
+    }
+    throw error;
   }
 }
 
@@ -41,26 +81,16 @@ export function isUpdateInstallPending(
   markerPath: string,
   now: () => number = Date.now,
 ): boolean {
-  try {
-    const value = JSON.parse(readFileSync(markerPath, "utf8")) as {
-      startedAt?: unknown;
-    };
-    if (typeof value.startedAt !== "number") {
-      removeMarker(markerPath);
-      return false;
-    }
-    const age = now() - value.startedAt;
-    if (age >= 0 && age <= INSTALL_MARKER_MAX_AGE_MS) return true;
-    removeMarker(markerPath);
-    return false;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    if (error instanceof SyntaxError) {
-      removeMarker(markerPath);
-      return false;
-    }
-    throw error;
-  }
+  return readPendingMarker(markerPath, now) !== undefined;
+}
+
+export function isUpdateSourceVersionPending(
+  markerPath: string,
+  currentVersion: string,
+  now: () => number = Date.now,
+): boolean {
+  const marker = readPendingMarker(markerPath, now);
+  return marker?.sourceVersion === currentVersion;
 }
 
 export function findAuxiliaryLaneProcessIds(
@@ -138,7 +168,11 @@ export async function prepareForUpdateInstall(
   const now = options.now ?? Date.now;
   writeFileSync(
     options.markerPath,
-    `${JSON.stringify({ pid: options.currentPid, startedAt: now() })}\n`,
+    `${JSON.stringify({
+      pid: options.currentPid,
+      sourceVersion: options.sourceVersion,
+      startedAt: now(),
+    })}\n`,
     { mode: 0o600 },
   );
   if (options.platform !== "darwin") return [];

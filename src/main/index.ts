@@ -62,6 +62,7 @@ import { SecretStore } from "./secret-store.ts";
 import {
   clearUpdateInstallPending,
   isUpdateInstallPending,
+  isUpdateSourceVersionPending,
   prepareForUpdateInstall,
 } from "./update-install-guard.ts";
 import { WindowsTrayClickController } from "./windows-tray-click.ts";
@@ -93,7 +94,11 @@ const cliMode =
 const auxiliaryStartBlocked =
   (nativeCallerOrigin !== undefined || cliMode) &&
   isUpdateInstallPending(updateInstallMarkerPath);
-const safeStorageProfile = auxiliaryStartBlocked
+const updateSourceRelaunchBlocked =
+  nativeCallerOrigin === undefined &&
+  !cliMode &&
+  isUpdateSourceVersionPending(updateInstallMarkerPath, app.getVersion());
+const safeStorageProfile = auxiliaryStartBlocked || updateSourceRelaunchBlocked
   ? { secretsFile: "secrets-v2.json" }
   : resolveSafeStorageProfile({
       releaseBuild,
@@ -900,6 +905,7 @@ function startAutomaticUpdates(logger: LaneLogger): void {
         markerPath: updateInstallMarkerPath,
         executablePath: process.execPath,
         currentPid: process.pid,
+        sourceVersion: app.getVersion(),
         platform: process.platform,
       });
       if (stoppedProcesses.length > 0) {
@@ -1089,12 +1095,14 @@ if (auxiliaryStartBlocked) {
       app.exit(1);
     });
 } else {
-  const hasLock = app.requestSingleInstanceLock({ cliWake: cliWakeMode });
-  if (!hasLock) {
+  const hasLock =
+    !updateSourceRelaunchBlocked &&
+    app.requestSingleInstanceLock({ cliWake: cliWakeMode });
+  if (updateSourceRelaunchBlocked || !hasLock) {
     app.quit();
   } else {
-    // Only the primary main-app instance may end the install window. A second
-    // launch while the old version is quitting must not unblock new helpers.
+    // A fresh marker blocks the source version. Only the newly installed
+    // version may acquire the lock, clear the marker, and unblock helpers.
     clearUpdateInstallPending(updateInstallMarkerPath);
     app.on("second-instance", (_event, _argv, _workingDirectory, additionalData) => {
       if ((additionalData as { cliWake?: boolean } | undefined)?.cliWake !== true) {
