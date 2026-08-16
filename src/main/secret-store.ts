@@ -16,6 +16,10 @@ export class InvalidSecretCiphertextError extends Error {
 
 type StoredSecrets = Record<string, string>;
 
+export interface SecretSnapshot {
+  readonly encodedValue?: string;
+}
+
 export class SecretStore {
   private chain: Promise<unknown> = Promise.resolve();
 
@@ -68,6 +72,28 @@ export class SecretStore {
     return Object.keys(await this.loadRaw())
       .filter((key) => key.startsWith(prefix))
       .sort();
+  }
+
+  async snapshot(key: string): Promise<SecretSnapshot> {
+    this.assertAvailable();
+    const values = await this.loadRaw();
+    return Object.hasOwn(values, key)
+      ? { encodedValue: values[key]! }
+      : {};
+  }
+
+  async restore(key: string, snapshot: SecretSnapshot): Promise<void> {
+    this.assertAvailable();
+    this.chain = this.chain.catch(() => undefined).then(async () => {
+      const values = await this.loadRaw();
+      if (snapshot.encodedValue === undefined) {
+        delete values[key];
+      } else {
+        values[key] = snapshot.encodedValue;
+      }
+      await this.saveRaw(values);
+    });
+    await this.chain;
   }
 
   async set(key: string, value: string): Promise<void> {

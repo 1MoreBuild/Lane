@@ -900,6 +900,7 @@ function startAutomaticUpdates(logger: LaneLogger): void {
     updater: electronUpdater.autoUpdater,
     logger,
     onStateChanged: sendUpdateState,
+    completePreparedInstallFallback: () => app.quit(),
     prepareToInstall: async () => {
       const stoppedProcesses = await prepareForUpdateInstall({
         markerPath: updateInstallMarkerPath,

@@ -146,7 +146,7 @@ describe("persistence and lifecycle", () => {
     await app.shutdown();
   });
 
-  it("preserves API-key credentials when reconnection storage reads fail", async () => {
+  it("lets an explicit API-key reconnect replace an unreadable credential", async () => {
     const shared = await stores();
     const app = new AppCore({ ...shared, discover });
     await app.initialize();
@@ -161,14 +161,48 @@ describe("persistence and lifecycle", () => {
       .spyOn(shared.credentials, "read")
       .mockRejectedValueOnce(new Error("User denied Keychain access"));
 
+    const repaired = await app.addProvider({
+      providerId,
+      kind: "openai",
+      apiKey: "replacement-secret",
+    });
+    read.mockRestore();
+    expect(repaired.providers).toHaveLength(1);
+    expect(await originalRead(providerId)).toEqual({
+      type: "api_key",
+      key: "replacement-secret",
+    });
+    await app.shutdown();
+  });
+
+  it("restores an opaque API-key credential when reconnection persistence fails", async () => {
+    const shared = await stores();
+    const app = new AppCore({ ...shared, discover });
+    await app.initialize();
+    const connected = await app.addProvider({
+      kind: "openai",
+      name: "Existing provider",
+      apiKey: "existing-secret",
+    });
+    const providerId = connected.providers[0]!.id;
+    const originalRead = shared.credentials.read.bind(shared.credentials);
+    const read = vi
+      .spyOn(shared.credentials, "read")
+      .mockRejectedValueOnce(new Error("User denied Keychain access"));
+    const save = vi
+      .spyOn(shared.configStore, "save")
+      .mockRejectedValueOnce(new Error("settings disk full"));
+
     await expect(
       app.addProvider({
         providerId,
         kind: "openai",
         apiKey: "replacement-secret",
       }),
-    ).rejects.toThrow("Keychain");
+    ).rejects.toThrow("settings disk full");
+
     read.mockRestore();
+    save.mockRestore();
     expect(await originalRead(providerId)).toEqual({
       type: "api_key",
       key: "existing-secret",

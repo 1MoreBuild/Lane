@@ -82,6 +82,38 @@ describe("automatic updates", () => {
     expect(fake.autoInstallOnAppQuit).toBe(true);
   });
 
+  it("finishes a prepared update on normal app quit when immediate handoff fails", async () => {
+    const fake = new FakeUpdater();
+    fake.quitAndInstall.mockImplementationOnce(() => {
+      throw new Error("immediate handoff failed");
+    });
+    const states: LaneUpdateState[] = [];
+    const completePreparedInstallFallback = vi.fn();
+    const controller = new LaneAutoUpdate({
+      updater: updater(fake),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      onStateChanged: (state) => states.push(state),
+      prepareToInstall: vi.fn(async () => undefined),
+      completePreparedInstallFallback,
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    controller.start();
+
+    fake.emit("update-available", { version: "0.2.0" });
+    fake.emit("update-downloaded", { version: "0.2.0" });
+
+    await vi.waitFor(() =>
+      expect(completePreparedInstallFallback).toHaveBeenCalledOnce(),
+    );
+    expect(fake.autoInstallOnAppQuit).toBe(true);
+    expect(states.at(-1)).toEqual({
+      status: "downloading",
+      version: "0.2.0",
+      percent: 100,
+    });
+  });
+
   it("does not download before the user clicks the update control", async () => {
     const fake = new FakeUpdater();
     const controller = new LaneAutoUpdate({

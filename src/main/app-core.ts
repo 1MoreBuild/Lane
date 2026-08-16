@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import type { Credential, CredentialStore } from "@earendil-works/pi-ai";
+import type { CredentialStore } from "@earendil-works/pi-ai";
 import type {
   AddProviderInput,
   LaneConfig,
@@ -223,12 +223,13 @@ export class AppCore {
       ...(baseUrl ? { baseUrl } : {}),
     });
     const id = existing?.id ?? this.providerId(input);
-    let previousCredential: Credential | undefined;
+    const previousCredentialSnapshot = await this.credentials.snapshot(id);
     try {
-      previousCredential = await this.credentials.read(id);
+      await this.credentials.read(id);
     } catch (error) {
-      if (error instanceof InvalidStoredCredentialError) {
-        previousCredential = undefined;
+      if (error instanceof InvalidStoredCredentialError || existing) {
+        // Explicit reconnection may replace an unreadable credential. The
+        // opaque encrypted snapshot is restored if any later step fails.
       } else {
         throw error;
       }
@@ -268,11 +269,7 @@ export class AppCore {
         ...(defaultImageModel ? { defaultImageModel } : {}),
       });
     } catch (error) {
-      if (previousCredential) {
-        await this.credentials.modify(id, async () => previousCredential);
-      } else {
-        await this.credentials.delete(id);
-      }
+      await this.credentials.restore(id, previousCredentialSnapshot);
       throw error;
     }
     this.logger.info(`Connected ${provider.name}; ${provider.models.length} models loaded`);
@@ -292,30 +289,34 @@ export class AppCore {
       [...config.providers.filter((item) => item.id !== provisional.id), provisional],
       this.credentials,
     );
-    let previousCredential: Credential | undefined;
+    const existing = config.providers.find(
+      (provider) => provider.id === provisional.id,
+    );
+    const previousCredentialSnapshot = await this.credentials.snapshot(
+      provisional.id,
+    );
     try {
-      previousCredential = await this.credentials.read(provisional.id);
+      await this.credentials.read(provisional.id);
     } catch (error) {
       // A corrupt credential must not make the provider impossible to repair.
-      if (error instanceof InvalidStoredCredentialError) {
+      if (error instanceof InvalidStoredCredentialError || existing) {
         await this.credentials.delete(provisional.id);
       } else {
         throw error;
       }
     }
-    await coordinator.login(models);
-    const providers = [
-      ...config.providers.filter((item) => item.id !== provisional.id),
-      provisional,
-    ];
     try {
+      await coordinator.login(models);
+      const providers = [
+        ...config.providers.filter((item) => item.id !== provisional.id),
+        provisional,
+      ];
       await this.persist({ ...config, providers });
     } catch (error) {
-      if (previousCredential) {
-        await this.credentials.modify(provisional.id, async () => previousCredential);
-      } else {
-        await this.credentials.delete(provisional.id);
-      }
+      await this.credentials.restore(
+        provisional.id,
+        previousCredentialSnapshot,
+      );
       throw error;
     }
     this.logger.info("Connected ChatGPT / Codex with OAuth");

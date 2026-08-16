@@ -5,6 +5,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import {
   InvalidSecretCiphertextError,
+  type SecretSnapshot,
   type SecretStore,
 } from "./secret-store.ts";
 
@@ -56,6 +57,23 @@ export class SecureCredentialStore implements CredentialStore {
       if (credential) result.push({ providerId, type: credential.type });
     }
     return result;
+  }
+
+  async snapshot(providerId: string): Promise<SecretSnapshot> {
+    return await this.secrets.snapshot(this.key(providerId));
+  }
+
+  async restore(providerId: string, snapshot: SecretSnapshot): Promise<void> {
+    const previous = this.chains.get(providerId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(() => this.secrets.restore(this.key(providerId), snapshot));
+    this.chains.set(providerId, next);
+    try {
+      await next;
+    } finally {
+      if (this.chains.get(providerId) === next) this.chains.delete(providerId);
+    }
   }
 
   async modify(

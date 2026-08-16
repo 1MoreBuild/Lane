@@ -24,6 +24,7 @@ export interface LaneAutoUpdateOptions {
   logger: UpdateLogger;
   onStateChanged(state: LaneUpdateState): void;
   prepareToInstall(): Promise<void>;
+  completePreparedInstallFallback?(): void;
   scheduleTimeout?: Schedule;
   scheduleInterval?: Schedule;
 }
@@ -33,6 +34,9 @@ export class LaneAutoUpdate {
   private readonly logger: UpdateLogger;
   private readonly onStateChanged: LaneAutoUpdateOptions["onStateChanged"];
   private readonly prepareToInstall: LaneAutoUpdateOptions["prepareToInstall"];
+  private readonly completePreparedInstallFallback:
+    | LaneAutoUpdateOptions["completePreparedInstallFallback"]
+    | undefined;
   private readonly scheduleTimeout: Schedule;
   private readonly scheduleInterval: Schedule;
   private started = false;
@@ -47,6 +51,8 @@ export class LaneAutoUpdate {
     this.logger = options.logger;
     this.onStateChanged = options.onStateChanged;
     this.prepareToInstall = options.prepareToInstall;
+    this.completePreparedInstallFallback =
+      options.completePreparedInstallFallback;
     this.scheduleTimeout =
       options.scheduleTimeout ??
       ((callback, delay) => setTimeout(callback, delay));
@@ -161,15 +167,24 @@ export class LaneAutoUpdate {
   private async install(version: string): Promise<void> {
     if (this.installing) return;
     this.installing = true;
+    let prepared = false;
     try {
       this.onStateChanged({ status: "downloading", version, percent: 100 });
       this.logger.info(`Installing Lane ${version}`);
       await this.prepareToInstall();
+      prepared = true;
       // Preparation established the install guard, so the standard fallback is
       // now safe if the immediate handoff is interrupted.
       this.updater.autoInstallOnAppQuit = true;
       this.updater.quitAndInstall(false, true);
     } catch (error) {
+      if (prepared && this.completePreparedInstallFallback) {
+        this.logger.warn(
+          `Immediate update handoff failed; completing install on app quit: ${String(error)}`,
+        );
+        this.completePreparedInstallFallback();
+        return;
+      }
       this.updater.autoInstallOnAppQuit = false;
       this.installing = false;
       this.downloading = false;
