@@ -101,8 +101,9 @@ for (const [arch, goArch] of [
       "-ldflags=-s -w",
       "-o",
       output,
-      resolve(projectRoot, `native-host/${sourceName}`),
+      sourceName,
     ], {
+      cwd: resolve(projectRoot, "native-host"),
       env: {
         ...process.env,
         GOOS: "windows",

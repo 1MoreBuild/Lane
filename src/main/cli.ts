@@ -4,6 +4,7 @@ import type {
 } from "./cli-control.ts";
 import { requestCliControl } from "./cli-control.ts";
 import type { ReasoningEffort } from "../shared/contracts.ts";
+import { defaultReadStdin } from "./cli-stdin.ts";
 
 const TOP_LEVEL_COMMANDS = [
   "status",
@@ -418,13 +419,6 @@ function humanOutput(command: LaneCliCommand, value: unknown): string {
     "models-set-speed": "Speed updated.",
   };
   return `${messages[command] ?? "Done."}\n`;
-}
-
-async function defaultReadStdin(): Promise<string> {
-  process.stdin.setEncoding("utf8");
-  let value = "";
-  for await (const chunk of process.stdin) value += chunk;
-  return value;
 }
 
 async function controlRequest(
