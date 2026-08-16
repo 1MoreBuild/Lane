@@ -6,6 +6,15 @@ Notable user-visible changes are recorded here. Lane follows
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-08-15
+
+### Fixed
+
+- Fixed provider reconnection when a stored credential is missing or unreadable,
+  including in-place repair through the Lane CLI.
+- Fixed macOS updates that could download successfully but fail to install or
+  relaunch while a Lane CLI or Native Messaging helper was still running.
+
 ## [0.1.11] - 2026-08-15
 
 ### Added
@@ -17,13 +26,6 @@ Notable user-visible changes are recorded here. Lane follows
 
 - Checks for updates when the main window is reopened, with concurrent checks
   shared and rate-limited to avoid redundant update-feed requests.
-
-### Fixed
-
-- Fixed provider reconnection when a stored credential is missing or unreadable,
-  including in-place repair through the Lane CLI.
-- Fixed macOS updates that could download successfully but fail to install or
-  relaunch while a Lane CLI or Native Messaging helper was still running.
 
 ## [0.1.10] - 2026-08-15
 
@@ -146,7 +148,8 @@ Notable user-visible changes are recorded here. Lane follows
 - Restricted the gateway to IPv4 loopback, required a separate Lane client
   key, and enforced explicit browser-origin allowlists.
 
-[Unreleased]: https://github.com/1MoreBuild/Lane/compare/v0.1.11...HEAD
+[Unreleased]: https://github.com/1MoreBuild/Lane/compare/v0.1.12...HEAD
+[0.1.12]: https://github.com/1MoreBuild/Lane/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/1MoreBuild/Lane/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/1MoreBuild/Lane/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/1MoreBuild/Lane/compare/v0.1.7...v0.1.9
