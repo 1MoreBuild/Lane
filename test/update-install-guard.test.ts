@@ -98,6 +98,35 @@ describe("update install guard", () => {
     expect(isUpdateInstallPending(marker, () => 1_001)).toBe(true);
   });
 
+  it("force-stops a helper that appears during the exit poll", async () => {
+    const marker = await markerPath();
+    const executable = "/Applications/Lane.app/Contents/MacOS/Lane";
+    const processTables = [
+      `501 100 ${executable}`,
+      `501 100 ${executable}`,
+      `501 100 ${executable}\n501 101 ${executable} models`,
+      `501 100 ${executable}`,
+    ];
+    const kill = vi.fn();
+    const wait = vi.fn(async () => undefined);
+
+    const stopped = await prepareForUpdateInstall({
+      markerPath: marker,
+      executablePath: executable,
+      currentPid: 100,
+      currentUserId: 501,
+      platform: "darwin",
+      listProcesses: async () => processTables.shift() ?? `501 100 ${executable}`,
+      killProcess: kill,
+      wait,
+      now: () => 1_500,
+    });
+
+    expect(stopped).toEqual([101]);
+    expect(kill.mock.calls).toEqual([[101, "SIGKILL"]]);
+    expect(wait.mock.calls).toEqual([[100], [100]]);
+  });
+
   it("clears the marker on normal startup and ignores stale markers", async () => {
     const marker = await markerPath();
     await prepareForUpdateInstall({

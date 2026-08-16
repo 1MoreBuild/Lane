@@ -164,6 +164,7 @@ export async function prepareForUpdateInstall(
       options.canonicalizeExecutable,
     );
     signal(initial, "SIGTERM", killProcess);
+    const stopped = new Set(initial);
     if (initial.length > 0) await wait(600);
 
     const remaining = findAuxiliaryLaneProcessIds(
@@ -174,32 +175,30 @@ export async function prepareForUpdateInstall(
       options.canonicalizeExecutable,
     );
     signal(remaining, "SIGKILL", killProcess);
-    if (remaining.length > 0) {
-      let survivors = remaining;
-      for (
-        let attempt = 0;
-        attempt < FORCE_KILL_EXIT_POLL_ATTEMPTS && survivors.length > 0;
-        attempt += 1
-      ) {
-        await wait(FORCE_KILL_EXIT_POLL_INTERVAL_MS);
-        const running = new Set(
-          findAuxiliaryLaneProcessIds(
-            await listProcesses(),
-            options.executablePath,
-            options.currentPid,
-            currentUserId,
-            options.canonicalizeExecutable,
-          ),
-        );
-        survivors = survivors.filter((pid) => running.has(pid));
+    const forceKilled = new Set(remaining);
+    for (const pid of remaining) stopped.add(pid);
+
+    let running: number[] = [];
+    for (let attempt = 0; attempt < FORCE_KILL_EXIT_POLL_ATTEMPTS; attempt += 1) {
+      await wait(FORCE_KILL_EXIT_POLL_INTERVAL_MS);
+      running = findAuxiliaryLaneProcessIds(
+        await listProcesses(),
+        options.executablePath,
+        options.currentPid,
+        currentUserId,
+        options.canonicalizeExecutable,
+      );
+      const newlyStarted = running.filter((pid) => !forceKilled.has(pid));
+      signal(newlyStarted, "SIGKILL", killProcess);
+      for (const pid of newlyStarted) {
+        forceKilled.add(pid);
+        stopped.add(pid);
       }
-      if (survivors.length > 0) {
-        throw new Error(
-          `Lane helper process${survivors.length === 1 ? "" : "es"} did not exit before update installation`,
-        );
-      }
+      if (running.length === 0) return [...stopped];
     }
-    return [...new Set([...initial, ...remaining])];
+    throw new Error(
+      `Lane helper process${running.length === 1 ? "" : "es"} did not exit before update installation`,
+    );
   } catch (error) {
     removeMarker(options.markerPath);
     throw error;

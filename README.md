@@ -112,7 +112,7 @@ lane models
 lane models set-effort --effort high
 lane models set-speed --speed fast
 lane providers list
-printf '%s' "$OPENAI_API_KEY" | lane providers add --kind openai --id <provider-id> --api-key-stdin
+printf '%s' "$OPENAI_API_KEY" | lane providers add --kind openai --id "$PROVIDER_ID" --api-key-stdin
 lane start
 lane stop
 ```
