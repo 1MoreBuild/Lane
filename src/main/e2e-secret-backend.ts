@@ -3,7 +3,10 @@ import {
   createDecipheriv,
   randomBytes,
 } from "node:crypto";
-import type { SecretBackend } from "./secret-store.ts";
+import {
+  InvalidSecretCiphertextError,
+  type SecretBackend,
+} from "./secret-store.ts";
 
 const VERSION = 1;
 const IV_BYTES = 12;
@@ -44,7 +47,7 @@ export class E2ESecretBackend implements SecretBackend {
       ciphertext.length < 1 + IV_BYTES + TAG_BYTES ||
       ciphertext[0] !== VERSION
     ) {
-      throw new Error("Invalid Lane E2E ciphertext");
+      throw new InvalidSecretCiphertextError();
     }
     const ivStart = 1;
     const tagStart = ivStart + IV_BYTES;
@@ -55,9 +58,13 @@ export class E2ESecretBackend implements SecretBackend {
       ciphertext.subarray(ivStart, tagStart),
     );
     decipher.setAuthTag(ciphertext.subarray(tagStart, bodyStart));
-    return Buffer.concat([
-      decipher.update(ciphertext.subarray(bodyStart)),
-      decipher.final(),
-    ]).toString("utf8");
+    try {
+      return Buffer.concat([
+        decipher.update(ciphertext.subarray(bodyStart)),
+        decipher.final(),
+      ]).toString("utf8");
+    } catch {
+      throw new InvalidSecretCiphertextError();
+    }
   }
 }

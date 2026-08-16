@@ -2,7 +2,10 @@ import { createServer, type Server } from "node:http";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SecretBackend } from "../src/main/secret-store.ts";
+import {
+  InvalidSecretCiphertextError,
+  type SecretBackend,
+} from "../src/main/secret-store.ts";
 
 export class TestSecretBackend implements SecretBackend {
   isAvailable(): boolean {
@@ -15,7 +18,7 @@ export class TestSecretBackend implements SecretBackend {
 
   decrypt(ciphertext: Buffer): string {
     const value = ciphertext.toString();
-    if (!value.startsWith("encrypted:")) throw new Error("Invalid test ciphertext");
+    if (!value.startsWith("encrypted:")) throw new InvalidSecretCiphertextError();
     return Buffer.from(value.slice("encrypted:".length), "base64").toString();
   }
 }

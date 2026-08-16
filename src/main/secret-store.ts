@@ -7,6 +7,13 @@ export interface SecretBackend {
   decrypt(ciphertext: Buffer): string;
 }
 
+export class InvalidSecretCiphertextError extends Error {
+  constructor() {
+    super("Invalid secret ciphertext");
+    this.name = "InvalidSecretCiphertextError";
+  }
+}
+
 type StoredSecrets = Record<string, string>;
 
 export class SecretStore {

@@ -1,7 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { GatewayServer } from "../src/main/gateway.ts";
-import { SecureCredentialStore } from "../src/main/credential-store.ts";
+import {
+  InvalidStoredCredentialError,
+  SecureCredentialStore,
+} from "../src/main/credential-store.ts";
 import { redact } from "../src/main/logger.ts";
 import type { CanonicalEvent, CanonicalRequest, ModelRuntime } from "../src/main/runtime.ts";
 import {
@@ -9,7 +12,10 @@ import {
   assertSafeUpstreamUrl,
   LOOPBACK_HOST,
 } from "../src/main/security.ts";
-import { SecretStore } from "../src/main/secret-store.ts";
+import {
+  InvalidSecretCiphertextError,
+  SecretStore,
+} from "../src/main/secret-store.ts";
 import {
   parseKeychainCreatedAt,
   resolveSafeStorageProfile,
@@ -145,6 +151,30 @@ describe("security boundaries", () => {
     expect(
       redact("eyJabcdefghijk.eyJabcdefghijklmnop.qwertyuiopasdfgh"),
     ).toBe("[REDACTED]");
+  });
+
+  it("distinguishes corrupt credentials from temporary secure-storage failures", async () => {
+    const file = await tempPath("credential-read-errors.json");
+    const backend = new TestSecretBackend();
+    let readError: Error = new InvalidSecretCiphertextError();
+    const secrets = new SecretStore(file, {
+      isAvailable: () => true,
+      encrypt: (value) => backend.encrypt(value),
+      decrypt: () => {
+        throw readError;
+      },
+    });
+    const credentials = new SecureCredentialStore(secrets);
+    await secrets.set("credential:openai", "stored-value");
+
+    await expect(credentials.read("openai")).rejects.toBeInstanceOf(
+      InvalidStoredCredentialError,
+    );
+
+    readError = new Error("User denied Keychain access");
+    await expect(credentials.read("openai")).rejects.toThrow(
+      "User denied Keychain access",
+    );
   });
 
   it("preserves the post-write credential when modify returns undefined", async () => {

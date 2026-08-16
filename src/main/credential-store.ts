@@ -3,7 +3,10 @@ import type {
   CredentialInfo,
   CredentialStore,
 } from "@earendil-works/pi-ai";
-import type { SecretStore } from "./secret-store.ts";
+import {
+  InvalidSecretCiphertextError,
+  type SecretStore,
+} from "./secret-store.ts";
 
 export class InvalidStoredCredentialError extends Error {
   constructor() {
@@ -22,7 +25,15 @@ export class SecureCredentialStore implements CredentialStore {
   }
 
   async read(providerId: string): Promise<Credential | undefined> {
-    const value = await this.secrets.get(this.key(providerId));
+    let value: string | undefined;
+    try {
+      value = await this.secrets.get(this.key(providerId));
+    } catch (error) {
+      if (error instanceof InvalidSecretCiphertextError) {
+        throw new InvalidStoredCredentialError();
+      }
+      throw error;
+    }
     if (!value) return undefined;
     let parsed: unknown;
     try {
