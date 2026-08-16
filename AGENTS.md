@@ -49,6 +49,11 @@ used an installed package, and whether any real model request ran.
 
 - A release requires explicit user authorization. Do not infer release intent
   from a request to commit, push, open a pull request, or merge.
+- At the start of release preparation, run `git fetch origin --tags --prune`,
+  require a clean worktree, verify that local `main` exactly matches
+  `origin/main`, and compare `package.json` with the latest stable GitHub
+  Release and tag. Query the latest release directly; checking only a named tag
+  is not sufficient.
 - Before a release, read `docs/RELEASING.md`, inspect the active workflow, fold
   pending `.changes` fragments into `CHANGELOG.md`, and remove consumed
   fragments.
@@ -57,6 +62,9 @@ used an installed package, and whether any real model request ran.
   not merge, tag, or publish while an actionable P1 or P2 remains.
 - Never change the package version, create or push a tag, dispatch a release
   workflow, or publish artifacts without explicit release authorization.
+- After the release pull request merges and immediately before preflight or
+  tagging, repeat the remote refresh and version checks. Stop if `main` moved,
+  the local checkout is stale, or a newer stable release already exists.
 - Stable macOS artifacts must be Developer ID signed, notarized, stapled, and
   pass installed-product E2E on native Apple Silicon and Intel runners before
   publication.
