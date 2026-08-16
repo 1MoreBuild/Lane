@@ -146,6 +146,36 @@ describe("persistence and lifecycle", () => {
     await app.shutdown();
   });
 
+  it("preserves API-key credentials when reconnection storage reads fail", async () => {
+    const shared = await stores();
+    const app = new AppCore({ ...shared, discover });
+    await app.initialize();
+    const connected = await app.addProvider({
+      kind: "openai",
+      name: "Existing provider",
+      apiKey: "existing-secret",
+    });
+    const providerId = connected.providers[0]!.id;
+    const originalRead = shared.credentials.read.bind(shared.credentials);
+    const read = vi
+      .spyOn(shared.credentials, "read")
+      .mockRejectedValueOnce(new Error("User denied Keychain access"));
+
+    await expect(
+      app.addProvider({
+        providerId,
+        kind: "openai",
+        apiKey: "replacement-secret",
+      }),
+    ).rejects.toThrow("Keychain");
+    read.mockRestore();
+    expect(await originalRead(providerId)).toEqual({
+      type: "api_key",
+      key: "existing-secret",
+    });
+    await app.shutdown();
+  });
+
   it("clears provider defaults that disappear during reconnection", async () => {
     const shared = await stores();
     let models = [

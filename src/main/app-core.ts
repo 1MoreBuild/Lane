@@ -226,8 +226,12 @@ export class AppCore {
     let previousCredential: Credential | undefined;
     try {
       previousCredential = await this.credentials.read(id);
-    } catch {
-      previousCredential = undefined;
+    } catch (error) {
+      if (error instanceof InvalidStoredCredentialError) {
+        previousCredential = undefined;
+      } else {
+        throw error;
+      }
     }
     await this.credentials.replace(id, { type: "api_key", key: input.apiKey });
     const provider: ProviderConfig = {
