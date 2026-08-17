@@ -237,16 +237,29 @@ async function launchLane(context: LaneTestContext): Promise<LaneSession> {
     windows: () => browserContext.pages(),
     context: () => browserContext,
     close: async () => {
-      await browser.close().catch(() => undefined);
-      if (child.exitCode !== null) return;
+      if (child.exitCode !== null) {
+        await browser.close().catch(() => undefined);
+        return;
+      }
       const exited = new Promise<void>((settle) => child.once("exit", () => settle()));
-      child.kill();
-      // Wait for the process to release the temporary profile, otherwise the
-      // per-test cleanup races it and fails with ENOTEMPTY on macOS.
+      // Ask the app to quit through its own shutdown path first: killing it
+      // outright leaves Electron helpers holding the temporary profile, which
+      // Windows then refuses to remove.
+      await requestCliControl(context.controlSocket, "quit", 5_000).catch(
+        () => undefined,
+      );
       await Promise.race([
         exited,
-        new Promise<void>((settle) => setTimeout(settle, 8_000)),
+        new Promise<void>((settle) => setTimeout(settle, 10_000)),
       ]);
+      await browser.close().catch(() => undefined);
+      if (child.exitCode === null) {
+        child.kill();
+        await Promise.race([
+          exited,
+          new Promise<void>((settle) => setTimeout(settle, 5_000)),
+        ]);
+      }
     },
   };
 
@@ -491,7 +504,15 @@ test.describe("Lane packaged product journeys", () => {
       }
     } finally {
       await context.upstream.close();
-      await rm(context.userData, { recursive: true, force: true });
+      // Electron's helper processes release the profile asynchronously, so on
+      // Windows the first unlink can still hit EBUSY; a temp directory is not
+      // worth failing a product journey over either.
+      await rm(context.userData, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 250,
+      }).catch(() => undefined);
     }
   });
 
