@@ -119,6 +119,28 @@ describe("Lane CLI", () => {
     );
   });
 
+  it("keeps plain columns aligned when rows omit optional fields", async () => {
+    const output = capture();
+    const code = await runLaneCli(["providers", "list", "--plain"], {
+      socketPath: "unused",
+      version: "0.1.0",
+      io: output.io,
+      request: async () => ({
+        ok: true,
+        data: [
+          { id: "openai", kind: "openai", connected: true, auth_type: "oauth" },
+          { id: "custom", kind: "custom-openai", connected: false, auth_type: null },
+          { id: "broken", kind: "openai", connected: false, error: "Invalid key" },
+        ],
+      }),
+    });
+    expect(code).toBe(0);
+    const rows = output.stdout.join("").trimEnd().split("\n");
+    expect(rows.map((row) => row.split("\t").length)).toEqual([5, 5, 5]);
+    expect(rows[1]?.split("\t")).toEqual(["custom", "custom-openai", "false", "", ""]);
+    expect(rows[2]?.split("\t")).toEqual(["broken", "openai", "false", "", "Invalid key"]);
+  });
+
   it("wakes Lane once and retries when the service is absent", async () => {
     const output = capture();
     const missing = Object.assign(new Error("missing"), { code: "ENOENT" });

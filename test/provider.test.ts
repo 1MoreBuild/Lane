@@ -69,6 +69,38 @@ describe("provider connections", () => {
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
+  it("gives model discovery a deadline when the caller supplies no signal", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      expect(init?.signal?.aborted).toBe(false);
+      return new Response(JSON.stringify({ data: [{ id: "model-1" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    await discoverModels({ kind: "openai", apiKey: "test-secret" }, fetcher);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("aborts model discovery when the upstream host stalls", async () => {
+    const controller = new AbortController();
+    const fetcher = vi.fn<typeof fetch>(
+      async (_input, init) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new Error("The operation was aborted")),
+          );
+          controller.abort();
+        }),
+    );
+    const pending = discoverModels(
+      { kind: "openai", apiKey: "test-secret" },
+      fetcher,
+      controller.signal,
+    );
+    await expect(pending).rejects.toThrow(/abort/i);
+  });
+
   it("marks configured custom OpenAI-compatible models as image-capable", () => {
     const models = buildModels(
       [

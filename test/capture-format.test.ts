@@ -24,6 +24,15 @@ describe("capture formatting", () => {
     expect(events[1]?.event).toBe("response.completed");
   });
 
+  it("labels upstream event names that collide with inherited object keys", () => {
+    for (const type of ["__proto__", "toString", "constructor", "hasOwnProperty"]) {
+      const events = protocolEvents(`data: ${JSON.stringify({ type })}\n\n`);
+      expect(events[0]?.label).toBeTypeOf("string");
+    }
+    expect(protocolEvents('data: {"type":"__proto__"}\n\n')[0]?.label).toBe("Proto");
+    expect(protocolEvents('data: {"type":"toString"}\n\n')[0]?.label).toBe("ToString");
+  });
+
   it("groups consecutive text deltas into readable output", () => {
     const events = protocolEvents(
       'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"Hello"}\n\n' +

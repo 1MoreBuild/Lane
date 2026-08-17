@@ -1,5 +1,5 @@
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   CliInstaller,
@@ -89,6 +89,91 @@ describe("CLI installer", () => {
         throw new Error("must not run");
       },
     });
+    await expect(installer.install()).rejects.toThrow(
+      `Another command already exists at ${link}`,
+    );
+  });
+
+  it("repairs a symlink owned by an older Lane app bundle", async () => {
+    const executable = await tempPath("current/Lane.app/Contents/MacOS/Lane");
+    const launcher = await tempPath("current/Lane.app/Contents/Resources/bin/lane");
+    const oldApp = await tempPath("old/Lane.app");
+    const oldExecutable = join(oldApp, "Contents/MacOS/Lane");
+    const link = await tempPath("bin/lane");
+    for (const path of [executable, launcher, oldExecutable]) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, "binary");
+    }
+    await mkdir(dirname(link), { recursive: true });
+    await symlink(oldExecutable, link);
+    const installer = new CliInstaller({
+      executablePath: executable,
+      launcherPath: launcher,
+      platform: "darwin",
+      linkPaths: [link],
+      readBundleIdentifier: async () => "works.earendil.lane",
+      runPrivileged: async () => {
+        await unlink(link);
+        await symlink(launcher, link);
+      },
+    });
+
+    expect(await installer.install()).toMatchObject({
+      installed: true,
+      path: link,
+    });
+  });
+
+  it("does not replace a symlink from another app bundle", async () => {
+    const executable = await tempPath("current/Lane.app/Contents/MacOS/Lane");
+    const launcher = await tempPath("current/Lane.app/Contents/Resources/bin/lane");
+    const otherApp = await tempPath("other/Other.app");
+    const otherExecutable = join(otherApp, "Contents/MacOS/Lane");
+    const link = await tempPath("bin/lane");
+    for (const path of [executable, launcher, otherExecutable]) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, "binary");
+    }
+    await mkdir(dirname(link), { recursive: true });
+    await symlink(otherExecutable, link);
+    const installer = new CliInstaller({
+      executablePath: executable,
+      launcherPath: launcher,
+      platform: "darwin",
+      linkPaths: [link],
+      readBundleIdentifier: async () => "com.example.other",
+      runPrivileged: async () => {
+        throw new Error("must not run");
+      },
+    });
+
+    await expect(installer.install()).rejects.toThrow(
+      `Another command already exists at ${link}`,
+    );
+  });
+
+  it("does not replace a dangling symlink with unknown ownership", async () => {
+    const executable = await tempPath("current/Lane.app/Contents/MacOS/Lane");
+    const launcher = await tempPath("current/Lane.app/Contents/Resources/bin/lane");
+    const missingExecutable = await tempPath("missing/Other.app/Contents/MacOS/Lane");
+    const link = await tempPath("bin/lane");
+    for (const path of [executable, launcher]) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, "binary");
+    }
+    await mkdir(dirname(link), { recursive: true });
+    await symlink(missingExecutable, link);
+    const installer = new CliInstaller({
+      executablePath: executable,
+      launcherPath: launcher,
+      platform: "darwin",
+      linkPaths: [link],
+      readBundleIdentifier: async () => "works.earendil.lane",
+      runPrivileged: async () => {
+        throw new Error("must not run");
+      },
+    });
+
     await expect(installer.install()).rejects.toThrow(
       `Another command already exists at ${link}`,
     );

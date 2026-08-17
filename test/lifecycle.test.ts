@@ -74,6 +74,60 @@ describe("persistence and lifecycle", () => {
     await app.shutdown();
   });
 
+  it("drops a default model the replacement key cannot serve", async () => {
+    const shared = await stores();
+    // An empty discovery lists the provider's whole catalogue, which is how the
+    // test learns model ids that the built-in OpenAI provider really has.
+    let models: Array<{ id: string; name: string }> = [];
+    const app = new AppCore({ ...shared, discover: async () => models });
+    await app.initialize();
+    let state = await app.addProvider({ kind: "openai", apiKey: "first-secret" });
+    const providerId = state.providers[0]!.id;
+    const catalog = state.models.map((model) =>
+      model.id.slice(`${providerId}/`.length),
+    );
+    expect(catalog.length).toBeGreaterThan(1);
+    const [kept, dropped] = catalog as [string, string];
+
+    models = [kept, dropped].map((id) => ({ id, name: id }));
+    await app.addProvider({ providerId, kind: "openai", apiKey: "first-secret" });
+    state = await app.setDefaultModel(`${providerId}/${dropped}`);
+    expect(state.defaultModel).toBe(`${providerId}/${dropped}`);
+
+    // Re-adding the same kind is a replacement, not a reconnect: no providerId.
+    models = [{ id: kept, name: kept }];
+    state = await app.addProvider({ kind: "openai", apiKey: "second-secret" });
+
+    expect(state.providers).toHaveLength(1);
+    expect(state.providers[0]?.models).toEqual([kept]);
+    expect(state.defaultModel).toBeUndefined();
+    await app.shutdown();
+  });
+
+  it("removes a provider whose stored credential no longer decrypts", async () => {
+    const shared = await stores();
+    const app = new AppCore({ ...shared, discover });
+    await app.initialize();
+    const added = await app.addProvider({
+      kind: "custom-openai",
+      name: "Local mock",
+      apiKey: "first-secret",
+      baseUrl: "http://127.0.0.1:9999/v1",
+    });
+    const provider = added.providers[0]!;
+    await shared.secretStore.set(`credential:${provider.id}`, "not-json");
+    expect((await app.getState()).providers[0]).toMatchObject({
+      needsReconnection: true,
+      error: "Invalid stored credential",
+    });
+
+    const state = await app.removeProvider(provider.id);
+
+    expect(state.providers).toHaveLength(0);
+    expect(await shared.secretStore.get(`credential:${provider.id}`)).toBeUndefined();
+    await app.shutdown();
+  });
+
   it("repairs a provider with an unreadable stored credential", async () => {
     const shared = await stores();
     const app = new AppCore({ ...shared, discover });
@@ -581,7 +635,7 @@ describe("persistence and lifecycle", () => {
       const state = await core.getState();
       expect(state.gateway.running).toBe(false);
       expect(state.gateway.error).toContain(`Port ${port} is already in use`);
-      expect(state.logs.some((entry) => entry.message.includes("already in use"))).toBe(true);
+      expect(state.logs).toEqual([]);
     } finally {
       await core.shutdown();
       await closeServer(blocker);

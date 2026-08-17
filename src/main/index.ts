@@ -50,7 +50,7 @@ import { SecureCredentialStore } from "./credential-store.ts";
 import { testGatewayConnectivity } from "./gateway-connectivity.ts";
 import { ElectronSecretBackend } from "./electron-secret-backend.ts";
 import { E2ESecretBackend } from "./e2e-secret-backend.ts";
-import { LaneLogger, redact } from "./logger.ts";
+import { isModelActivityEntry, LaneLogger, redact } from "./logger.ts";
 import { runLaneNativeHost } from "./native-messaging.ts";
 import { NativeMessagingInstaller } from "./native-messaging-install.ts";
 import { OAuthCoordinator } from "./oauth-coordinator.ts";
@@ -72,9 +72,11 @@ const cliWakeMode = process.env.LANE_CLI_WAKE === "1";
 const releaseBuild = process.env.LANE_RELEASE_BUILD === "1";
 const e2eUserData = process.env.LANE_E2E_USER_DATA;
 const e2eMode = e2eUserData !== undefined;
-if (e2eUserData) {
+if (e2eMode) {
+  // Selecting the E2E secret backend must never be possible for a real profile,
+  // so an empty value fails here rather than silently skipping the check.
   const temporaryRoot = `${realpathSync(tmpdir())}${sep}`;
-  const resolvedUserData = realpathSync(e2eUserData);
+  const resolvedUserData = e2eUserData ? realpathSync(e2eUserData) : "";
   if (!resolvedUserData.startsWith(temporaryRoot)) {
     throw new Error("Lane E2E user data must be an existing temporary directory");
   }
@@ -493,45 +495,42 @@ async function cliResult(request: CliControlRequest, appCore: AppCore): Promise<
   }
   if (command === "providers-list") return publicProviders(state);
   if (command === "activity") {
-    return state.logs.map((entry) => {
+    return state.logs.flatMap((entry) => {
       const trace = entry.trace;
-      return {
+      if (!trace) return [];
+      return [{
         timestamp: new Date(entry.timestamp).toISOString(),
         level: entry.level,
-        type: trace ? "gateway" : "system",
+        type: "gateway",
         message: entry.message,
-        ...(trace
-          ? {
-              request_id: trace.requestId,
-              phase: trace.phase,
-              method: trace.method,
-              path: trace.path,
-              ...(trace.stream !== undefined ? { stream: trace.stream } : {}),
-              ...(trace.provider ? { provider: trace.provider } : {}),
-              ...(trace.model ? { model: trace.model } : {}),
-              ...(trace.status !== undefined ? { status: trace.status } : {}),
-              ...(trace.durationMs !== undefined
-                ? { duration_ms: trace.durationMs }
-                : {}),
-              ...(trace.inputTokens !== undefined
-                ? { input_tokens: trace.inputTokens }
-                : {}),
-              ...(trace.outputTokens !== undefined
-                ? { output_tokens: trace.outputTokens }
-                : {}),
-              ...(trace.totalTokens !== undefined
-                ? { total_tokens: trace.totalTokens }
-                : {}),
-              ...(trace.imageCount !== undefined
-                ? { image_count: trace.imageCount }
-                : {}),
-              ...(trace.errorCode ? { error_code: trace.errorCode } : {}),
-              ...(trace.cancelled !== undefined
-                ? { cancelled: trace.cancelled }
-                : {}),
-            }
+        request_id: trace.requestId,
+        phase: trace.phase,
+        method: trace.method,
+        path: trace.path,
+        ...(trace.stream !== undefined ? { stream: trace.stream } : {}),
+        ...(trace.provider ? { provider: trace.provider } : {}),
+        ...(trace.model ? { model: trace.model } : {}),
+        ...(trace.status !== undefined ? { status: trace.status } : {}),
+        ...(trace.durationMs !== undefined
+          ? { duration_ms: trace.durationMs }
           : {}),
-      };
+        ...(trace.inputTokens !== undefined
+          ? { input_tokens: trace.inputTokens }
+          : {}),
+        ...(trace.outputTokens !== undefined
+          ? { output_tokens: trace.outputTokens }
+          : {}),
+        ...(trace.totalTokens !== undefined
+          ? { total_tokens: trace.totalTokens }
+          : {}),
+        ...(trace.imageCount !== undefined
+          ? { image_count: trace.imageCount }
+          : {}),
+        ...(trace.errorCode ? { error_code: trace.errorCode } : {}),
+        ...(trace.cancelled !== undefined
+          ? { cancelled: trace.cancelled }
+          : {}),
+      }];
     });
   }
   return {
@@ -585,6 +584,7 @@ function registerIpc(appCore: AppCore, installer: CliInstaller): void {
     return stateAfter(() => appCore.removeProvider(id));
   });
   ipcMain.handle("lane:start-oauth", async () => {
+    if (oauth) throw new Error("An OAuth sign-in is already in progress");
     oauth = new OAuthCoordinator(
       async (url) => {
         await shell.openExternal(url);
@@ -599,7 +599,10 @@ function registerIpc(appCore: AppCore, installer: CliInstaller): void {
   });
   ipcMain.handle("lane:submit-oauth-code", (_event, code: unknown) => {
     if (typeof code !== "string") throw new Error("OAuth code is required");
-    oauth?.submit(code);
+    // Swallowing this would let a code submitted into a finished flow look
+    // like it was accepted.
+    if (!oauth) throw new Error("No OAuth sign-in is waiting for a code");
+    oauth.submit(code);
   });
   ipcMain.handle("lane:cancel-oauth", () => oauth?.cancel());
   ipcMain.handle("lane:set-default-model", (_event, model: unknown) => {
@@ -949,7 +952,9 @@ async function boot(): Promise<void> {
     setDockIconVisible,
     setMenuBarIconVisible,
   });
-  logger.subscribe(scheduleActivityRefresh);
+  logger.subscribe((entry) => {
+    if (isModelActivityEntry(entry)) scheduleActivityRefresh();
+  });
   await core.initialize();
   const windowsCommandPath =
     process.platform === "win32"
@@ -977,7 +982,6 @@ async function boot(): Promise<void> {
       logger.warn(`CLI integration could not be restored: ${redact(error)}`);
     }
   }
-  await startCliControl(core);
   if (
     !process.defaultApp &&
     !e2eMode &&
@@ -1004,6 +1008,9 @@ async function boot(): Promise<void> {
   mainWindow.on("closed", () => {
     mainWindow = undefined;
   });
+  // Only now, so a cold-start `lane open` racing the socket cannot be answered
+  // with success by showMainWindow() before there is a window to show.
+  await startCliControl(core);
   startAutomaticUpdates(logger);
   installApplicationMenu();
 }

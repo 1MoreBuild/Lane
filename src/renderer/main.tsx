@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider, useTheme } from "next-themes";
@@ -203,15 +203,7 @@ function activityItems(logs: readonly LogEntry[]): ActivityItem[] {
   const items: ActivityItem[] = [];
   const requestIndexes = new Map<string, number>();
   for (const entry of logs) {
-    if (!entry.trace) {
-      items.push({
-        key: `${entry.timestamp}-${items.length}`,
-        timestamp: entry.timestamp,
-        level: entry.level,
-        message: entry.message,
-      });
-      continue;
-    }
+    if (!entry.trace) continue;
     const existingIndex = requestIndexes.get(entry.trace.requestId);
     if (existingIndex === undefined) {
       requestIndexes.set(entry.trace.requestId, items.length);
@@ -450,7 +442,7 @@ function UpdateControl({
             className="tabular-nums"
             size="icon-sm"
             title={label}
-            variant="ghost"
+            variant="secondary"
           />
         }
       >
@@ -470,18 +462,27 @@ function UpdateControl({
 function UtilityControls({
   activityOpen,
   onActivityToggle,
+  onUpdateClick,
   onSettingsOpenChange,
   settingsOpen,
   settingsContent,
+  updateState,
 }: {
   activityOpen: boolean;
   onActivityToggle: () => void;
+  onUpdateClick: () => void;
   onSettingsOpenChange: (open: boolean) => void;
   settingsOpen: boolean;
   settingsContent: ReactNode;
+  updateState: LaneUpdateState;
 }): ReactNode {
   return (
     <>
+      {updateState.status !== "idle" && (
+        <div aria-live="polite" className="flex">
+          <UpdateControl onClick={onUpdateClick} state={updateState} />
+        </div>
+      )}
       <Button
         aria-label={activityOpen ? "Show Overview" : "Open Activity"}
         aria-pressed={activityOpen}
@@ -522,6 +523,7 @@ function App(): ReactNode {
   const [gatewayBusy, setGatewayBusy] = useState(false);
   const [keyVisible, setKeyVisible] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const copiedTimer = useRef<number | undefined>(undefined);
   const [activityClearing, setActivityClearing] = useState(false);
   const [activityCaptureBusy, setActivityCaptureBusy] = useState(false);
   const [activeView, setActiveView] = useState<AppView>("overview");
@@ -659,7 +661,13 @@ function App(): ReactNode {
   async function copyValue(value: string, target: string): Promise<void> {
     await window.lane.copyText(value);
     setCopied(target);
-    window.setTimeout(() => setCopied(null), 1400);
+    // Without cancelling, a second copy inherits the first one's countdown and
+    // its confirmation disappears early.
+    if (copiedTimer.current !== undefined) window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => {
+      copiedTimer.current = undefined;
+      setCopied(null);
+    }, 1400);
   }
 
   async function toggleGateway(checked: boolean): Promise<void> {
@@ -818,6 +826,11 @@ function App(): ReactNode {
       setProviderDialogOpen(false);
     } catch (error) {
       setProviderError(getErrorMessage(error));
+      // The flow is over, so the code field must go with it: submitting into a
+      // finished flow silently does nothing and reads as success.
+      setOAuthStatus("");
+      setOAuthPrompt("");
+      setOAuthCode("");
     } finally {
       setProviderBusy(false);
     }
@@ -894,41 +907,13 @@ function App(): ReactNode {
       </div>
       {recentActivity.length === 0 ? (
         <p className="lane-meta rounded-lg bg-muted/35 px-4 py-10 text-center text-muted-foreground">
-          No recent activity
+          No model requests yet
         </p>
       ) : (
         <ol className="divide-y rounded-lg bg-muted/20 px-3">
           {recentActivity.map((entry) => {
               const trace = entry.trace;
-              if (!trace) {
-                return (
-                  <li className="flex gap-3 py-2.5" key={entry.key}>
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        "mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/50",
-                        entry.level === "error" && "bg-destructive",
-                      )}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p
-                        className={cn(
-                          "lane-meta truncate",
-                          entry.level === "error" && "text-destructive",
-                        )}
-                      >
-                        {entry.message}
-                      </p>
-                      <time className="lane-label text-muted-foreground">
-                        {new Date(entry.timestamp).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </time>
-                    </div>
-                  </li>
-                );
-              }
+              if (!trace) return null;
               const running = trace.phase === "started";
               const failed = trace.cancelled || (trace.status ?? 0) >= 400;
               const statusLabel = trace.cancelled
@@ -996,6 +981,16 @@ function App(): ReactNode {
 
   const settingsPanel = (
     <section>
+      {/* The popover covers the page-level banner, so a failed setting has to
+          report itself here or the switch just snaps back unexplained. */}
+      {loadError && (
+        <p
+          className="lane-body mx-4 mt-3 rounded-lg bg-destructive/10 p-3 text-destructive"
+          role="alert"
+        >
+          {loadError}
+        </p>
+      )}
       <div className="divide-y px-4">
         <div className="flex items-center justify-between gap-4 py-3">
           <p className="lane-value">Theme</p>
@@ -1122,9 +1117,11 @@ function App(): ReactNode {
                 onActivityToggle={() =>
                   setActiveView((view) => view === "activity" ? "overview" : "activity")
                 }
+                onUpdateClick={() => void window.lane.downloadUpdate()}
                 onSettingsOpenChange={setSettingsOpen}
                 settingsOpen={settingsOpen}
                 settingsContent={settingsPanel}
+                updateState={updateState}
               />
             </div>
           </header>
@@ -1146,11 +1143,24 @@ function App(): ReactNode {
                       onActivityToggle={() =>
                         setActiveView((view) => view === "activity" ? "overview" : "activity")
                       }
+                      onUpdateClick={() => void window.lane.downloadUpdate()}
                       onSettingsOpenChange={setSettingsOpen}
                       settingsOpen={settingsOpen}
                       settingsContent={settingsPanel}
+                      updateState={updateState}
                     />
                   </div>
+                )}
+
+                {/* Both views raise this, and Activity and Settings have no
+                    error slot of their own, so it renders above the switch. */}
+                {loadError && (
+                  <p
+                    className="lane-body mb-4 rounded-lg bg-destructive/10 p-3 text-destructive"
+                    role="alert"
+                  >
+                    {loadError}
+                  </p>
                 )}
 
                 {activeView === "activity" ? (
@@ -1237,9 +1247,9 @@ function App(): ReactNode {
                 </div>
               </div>
 
-              {(state.gateway.error || loadError) && (
+              {state.gateway.error && (
                 <p className="lane-body mt-3 rounded-lg bg-destructive/10 p-3 text-destructive">
-                  {state.gateway.error || loadError}
+                  {state.gateway.error}
                 </p>
               )}
               {state.credentialStorage.error && (
@@ -1272,7 +1282,9 @@ function App(): ReactNode {
                       <label>
                         <FieldLabel>Provider</FieldLabel>
                         <Select
-                          disabled={reconnectTarget !== null}
+                          // Switching kind mid-sign-in would strand providerBusy
+                          // and lose the cancel path for the running flow.
+                          disabled={reconnectTarget !== null || providerBusy}
                           value={providerKind}
                           onValueChange={(value) => {
                             if (value) {
@@ -1737,14 +1749,6 @@ function App(): ReactNode {
           </ScrollArea>
         </div>
 
-        {updateState.status !== "idle" && (
-          <div aria-live="polite" className="lane-update-control">
-            <UpdateControl
-              onClick={() => void window.lane.downloadUpdate()}
-              state={updateState}
-            />
-          </div>
-        )}
       </div>
 
       <AlertDialog

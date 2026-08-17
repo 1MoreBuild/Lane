@@ -168,6 +168,175 @@ describe("persistent activity log", () => {
     expect(persisted).not.toContain("Authorization");
   });
 
+  it("exposes only model inference requests as activity", async () => {
+    const logger = new LaneLogger({ now: () => 42 });
+    await logger.initialize();
+
+    logger.info("Gateway restored on http://127.0.0.1:3210");
+    logger.trace("info", "GET /v1/models", {
+      kind: "gateway",
+      requestId: "models",
+      phase: "completed",
+      method: "GET",
+      path: "/v1/models",
+      status: 200,
+    });
+    for (const [requestId, path] of [
+      ["responses", "/v1/responses"],
+      ["chat", "/v1/chat/completions"],
+      ["images", "/v1/images/generations"],
+    ] as const) {
+      logger.trace("info", `POST ${path}`, {
+        kind: "gateway",
+        requestId,
+        phase: "completed",
+        method: "POST",
+        path,
+        status: 200,
+      });
+    }
+
+    expect(logger.listActivity().map((entry) => entry.trace?.path)).toEqual([
+      "/v1/responses",
+      "/v1/chat/completions",
+      "/v1/images/generations",
+    ]);
+  });
+
+  it("clears model activity without deleting diagnostic history", async () => {
+    const directory = await tempPath("clear-model-activity");
+    const logger = new LaneLogger({ directory, now: () => 42 });
+    await logger.initialize();
+    logger.info("Gateway restored");
+    logger.trace("info", "POST /v1/responses", {
+      kind: "gateway",
+      requestId: "responses",
+      phase: "completed",
+      method: "POST",
+      path: "/v1/responses",
+      status: 200,
+    });
+
+    await logger.clearActivity();
+
+    expect(logger.listActivity()).toEqual([]);
+    expect(logger.list().map((entry) => entry.message)).toEqual(["Gateway restored"]);
+    const restored = new LaneLogger({ directory, now: () => 43 });
+    await restored.initialize();
+    expect(restored.listActivity()).toEqual([]);
+    expect(restored.list().map((entry) => entry.message)).toEqual(["Gateway restored"]);
+  });
+
+  it("keeps persisted diagnostics that outlived the in-memory window", async () => {
+    const directory = await tempPath("clear-beyond-memory");
+    const logger = new LaneLogger({ directory, maxEntries: 5, now: () => 42 });
+    await logger.initialize();
+    for (let index = 0; index < 12; index += 1) logger.info(`diagnostic ${index}`);
+    logger.trace("info", "POST /v1/responses", {
+      kind: "gateway",
+      requestId: "responses",
+      phase: "completed",
+      method: "POST",
+      path: "/v1/responses",
+      status: 200,
+    });
+    await logger.flush();
+    const [name] = await readdir(directory);
+    const path = join(directory, name!);
+    const aged = new Date(Date.now() - 3 * 24 * 60 * 60 * 1_000);
+    await utimes(path, aged, aged);
+
+    await logger.clearActivity();
+
+    const persisted = await readFile(path, "utf8");
+    expect(persisted).toContain("diagnostic 0");
+    expect(persisted).toContain("diagnostic 11");
+    expect(persisted).not.toContain("/v1/responses");
+    if (process.platform !== "win32") {
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+    }
+    expect((await stat(path)).mtimeMs).toBeCloseTo(aged.getTime(), 0);
+
+    const restored = new LaneLogger({ directory, maxEntries: 5, now: () => 43 });
+    await restored.initialize();
+    expect(restored.listActivity()).toEqual([]);
+    expect(restored.list().map((entry) => entry.message)).toEqual([
+      "diagnostic 7",
+      "diagnostic 8",
+      "diagnostic 9",
+      "diagnostic 10",
+      "diagnostic 11",
+    ]);
+  });
+
+  it("deletes a log file that held nothing but model requests", async () => {
+    const directory = await tempPath("clear-only-activity");
+    const logger = new LaneLogger({ directory, now: () => 42 });
+    await logger.initialize();
+    logger.trace("info", "POST /v1/responses", {
+      kind: "gateway",
+      requestId: "responses",
+      phase: "completed",
+      method: "POST",
+      path: "/v1/responses",
+      status: 200,
+    });
+    await logger.flush();
+    expect(await readdir(directory)).toHaveLength(1);
+
+    await logger.clearActivity();
+
+    expect(await readdir(directory)).toEqual([]);
+  });
+
+  it("does not let diagnostics evict model requests from activity", async () => {
+    const logger = new LaneLogger({ maxEntries: 3, maxActivityEntries: 2, now: () => 42 });
+    await logger.initialize();
+    for (const requestId of ["first", "second"]) {
+      logger.trace("info", "POST /v1/responses", {
+        kind: "gateway",
+        requestId,
+        phase: "completed",
+        method: "POST",
+        path: "/v1/responses",
+        status: 200,
+      });
+    }
+    for (let index = 0; index < 10; index += 1) logger.info(`diagnostic ${index}`);
+
+    expect(logger.listActivity().map((entry) => entry.trace?.requestId)).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(logger.list().map((entry) => entry.message)).toEqual([
+      "POST /v1/responses",
+      "POST /v1/responses",
+      "diagnostic 7",
+      "diagnostic 8",
+      "diagnostic 9",
+    ]);
+  });
+
+  it("drops the oldest model requests once activity fills its own budget", async () => {
+    const logger = new LaneLogger({ maxActivityEntries: 2, now: () => 42 });
+    await logger.initialize();
+    for (const requestId of ["first", "second", "third"]) {
+      logger.trace("info", "POST /v1/responses", {
+        kind: "gateway",
+        requestId,
+        phase: "completed",
+        method: "POST",
+        path: "/v1/responses",
+        status: 200,
+      });
+    }
+
+    expect(logger.listActivity().map((entry) => entry.trace?.requestId)).toEqual([
+      "second",
+      "third",
+    ]);
+  });
+
   it("keeps raw captures in memory for the current session and never persists them", async () => {
     const directory = await tempPath("capture-logs");
     const logger = new LaneLogger({ directory, now: () => 42 });

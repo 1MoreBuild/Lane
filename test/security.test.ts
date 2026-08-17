@@ -30,7 +30,7 @@ class EchoRuntime implements ModelRuntime {
   async *stream(_request: CanonicalRequest, _signal: AbortSignal): AsyncIterable<CanonicalEvent> {
     yield { type: "start", model: "mock/model" };
     yield { type: "text_delta", delta: "ok" };
-    yield { type: "done", reason: "stop", usage: { input: 1, output: 1, total: 2 } };
+    yield { type: "done", reason: "stop", usage: { input: 1, cachedInput: 0, output: 1, total: 2 } };
   }
 }
 

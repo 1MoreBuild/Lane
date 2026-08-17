@@ -71,7 +71,7 @@ export class LaneAutoUpdate {
     this.updater.autoRunAppAfterInstall = true;
     this.updater.allowPrerelease = false;
     this.updater.logger = {
-      info: (message) => this.logger.info(`Updater: ${String(message)}`),
+      info: () => undefined,
       warn: (message) => this.logger.warn(`Updater: ${String(message)}`),
       error: (message) => this.logger.warn(`Updater: ${String(message)}`),
       debug: () => undefined,
@@ -173,15 +173,21 @@ export class LaneAutoUpdate {
       this.logger.info(`Installing Lane ${version}`);
       await this.prepareToInstall();
       prepared = true;
-      // Preparation established the install guard, so the standard fallback is
-      // now safe if the immediate handoff is interrupted.
-      this.updater.autoInstallOnAppQuit = true;
+      // quitAndInstall must see autoInstallOnAppQuit still false: on macOS it
+      // is what tells it to start the native Squirrel fetch. When the flag is
+      // already true it assumes the download path started that fetch — but the
+      // download ran with the flag false, so no one would start it, Squirrel
+      // never reports the update, and the app waits forever at 100%.
       this.updater.quitAndInstall(false, true);
+      // Preparation established the install guard, so the standard fallback is
+      // now safe if the handoff above is interrupted before the app quits.
+      this.updater.autoInstallOnAppQuit = true;
     } catch (error) {
       if (prepared && this.completePreparedInstallFallback) {
         this.logger.warn(
           `Immediate update handoff failed; completing install on app quit: ${String(error)}`,
         );
+        this.updater.autoInstallOnAppQuit = true;
         this.completePreparedInstallFallback();
         return;
       }

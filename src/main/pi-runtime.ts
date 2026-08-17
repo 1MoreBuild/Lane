@@ -331,7 +331,13 @@ export class PiAiRuntime implements ModelRuntime {
           type: "done",
           reason: event.reason === "toolUse" ? "tool_calls" : event.reason,
           usage: {
-            input: event.message.usage.input,
+            // pi-ai reports `input` net of the cache; OpenAI's prompt_tokens
+            // includes it, so the cached and written tokens are added back.
+            input:
+              event.message.usage.input +
+              event.message.usage.cacheRead +
+              event.message.usage.cacheWrite,
+            cachedInput: event.message.usage.cacheRead,
             output: event.message.usage.output,
             total: event.message.usage.totalTokens,
           },

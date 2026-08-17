@@ -98,8 +98,14 @@ available in Transly when Lane is not installed.
   that the Web Store public key, unpacked extension ID, Dashboard item ID, and
   Lane allowlist still agree. Persisted extension origins outside that allowlist
   are removed when Lane loads its configuration.
-- `LaneLogger` keeps the latest 200 redacted activity entries in memory and
-  mirrors them to daily JSONL files in Electron's application log directory.
+- `LaneLogger` keeps the latest 200 redacted diagnostics and, on a separate
+  budget, the latest 200 model-request traces in memory, and mirrors both to
+  daily JSONL files in Electron's application log directory. The two budgets are
+  independent so a burst of diagnostics cannot evict recent requests from
+  Activity. The Activity surface and CLI expose only inference requests to
+  Responses, Chat Completions, and Image Generations; lifecycle, provider,
+  browser-integration, model-discovery, and updater diagnostics are recorded but
+  stay out of Activity.
   Startup reloads recent entries, removes files older than 7 days, enforces a
   5 MiB aggregate cap, and rotates files at 1 MiB. Persistence is diagnostic:
   a filesystem failure falls back to memory without stopping the gateway.
@@ -197,12 +203,18 @@ Removing or logging out a provider deletes its secret before removing the public
 configuration. Changing providers rebuilds the runtime behind a stable gateway
 holder, so clients do not need a new endpoint.
 
-Activity is loaded before configuration restoration so startup events append to
-the previous history. Clean shutdown waits for queued activity writes. Cleanup
-runs at startup, after rotation, and at least daily while Lane remains open.
-Each gateway request emits correlated start and completion metadata so the UI
-can show one compact trace with route, resolved model, status, latency, usage,
-and cancellation or error state. When the user enables Capture, completion
+Diagnostics and model-request traces are loaded before configuration restoration
+so new records append to the previous history. Clean shutdown waits for queued
+log writes. Cleanup runs at startup, after rotation, and at least daily while
+Lane remains open.
+Every gateway request except preflight and health checks emits correlated start
+and completion metadata so the UI can show one compact trace with route,
+resolved model, status, latency, usage, and cancellation or error state. Model
+discovery, rejected keys, and unknown routes are recorded that way too, but only
+inference requests reach Activity, so a denied origin or an invalid client key
+still leaves an auditable record. Clearing Activity rewrites each log file
+without its inference traces rather than deleting the file, so diagnostic
+history older than the in-memory window survives. When the user enables Capture, completion
 entries also retain the exact downstream request and response bodies in memory
 for the current process. The renderer keeps that raw evidence intact while
 deriving a readable presentation: JSON is pretty-printed, SSE is parsed into an

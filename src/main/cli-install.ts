@@ -7,6 +7,7 @@ import type { CliIntegrationState } from "../shared/contracts.ts";
 const execFileAsync = promisify(execFile);
 export const CLI_LINK_PATHS = ["/usr/local/bin/lane", "/opt/homebrew/bin/lane"] as const;
 export const WINDOWS_CLI_MARKER = "@rem Lane CLI launcher v1";
+export const LANE_BUNDLE_IDENTIFIER = "works.earendil.lane";
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
@@ -24,6 +25,34 @@ async function isLinkTo(path: string, targetPath: string): Promise<boolean> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
+  }
+}
+
+function laneAppBundleForTarget(targetPath: string): string | undefined {
+  // realpath produces backslash separators on Windows, where the unit tests
+  // for this macOS-only path also run.
+  const match = /^(.*\.app)\/Contents\/(?:MacOS\/Lane|Resources\/bin\/lane)$/.exec(
+    targetPath.replaceAll("\\", "/"),
+  );
+  return match?.[1];
+}
+
+async function defaultReadBundleIdentifier(
+  appPath: string,
+): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync("/usr/bin/plutil", [
+      "-extract",
+      "CFBundleIdentifier",
+      "raw",
+      "-o",
+      "-",
+      `${appPath}/Contents/Info.plist`,
+    ]);
+    const identifier = stdout.trim();
+    return identifier || undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -59,6 +88,7 @@ export interface CliInstallerOptions {
   windowsCommandPath?: string;
   windowsNativeLauncherPath?: string;
   runPrivileged?: (command: string) => Promise<void>;
+  readBundleIdentifier?: (appPath: string) => Promise<string | undefined>;
 }
 
 export interface CliIntegrationInstaller {
@@ -83,6 +113,9 @@ export class CliInstaller {
   private readonly windowsCommandPath: string | undefined;
   private readonly windowsNativeLauncherPath: string | undefined;
   private readonly runPrivileged: (command: string) => Promise<void>;
+  private readonly readBundleIdentifier: (
+    appPath: string,
+  ) => Promise<string | undefined>;
 
   constructor(options: CliInstallerOptions) {
     this.executablePath = options.executablePath;
@@ -91,6 +124,8 @@ export class CliInstaller {
     this.linkPaths = options.linkPaths ?? CLI_LINK_PATHS;
     this.windowsCommandPath = options.windowsCommandPath;
     this.windowsNativeLauncherPath = options.windowsNativeLauncherPath;
+    this.readBundleIdentifier =
+      options.readBundleIdentifier ?? defaultReadBundleIdentifier;
     this.runPrivileged =
       options.runPrivileged ??
       (async (command) => {
@@ -99,6 +134,26 @@ export class CliInstaller {
           `do shell script "${appleScriptString(command)}" with administrator privileges`,
         ]);
       });
+  }
+
+  private async isOwnedMacLink(path: string): Promise<boolean> {
+    const entry = await lstat(path);
+    if (!entry.isSymbolicLink()) return false;
+    if (
+      (await isLinkTo(path, this.launcherPath)) ||
+      (await isLinkTo(path, this.executablePath))
+    ) {
+      return true;
+    }
+    let target: string;
+    try {
+      target = await realpath(path);
+    } catch {
+      return false;
+    }
+    const appPath = laneAppBundleForTarget(target);
+    if (!appPath) return false;
+    return (await this.readBundleIdentifier(appPath)) === LANE_BUNDLE_IDENTIFIER;
   }
 
   async getState(enabled: boolean): Promise<CliIntegrationState> {
@@ -175,11 +230,7 @@ export class CliInstaller {
 
     for (const path of this.linkPaths) {
       try {
-        const entry = await lstat(path);
-        const owned =
-          entry.isSymbolicLink() &&
-          ((await isLinkTo(path, this.launcherPath)) ||
-            (await isLinkTo(path, this.executablePath)));
+        const owned = await this.isOwnedMacLink(path);
         if (!owned) {
           throw new Error(`Another command already exists at ${path}`);
         }

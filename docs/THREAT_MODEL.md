@@ -69,10 +69,11 @@ the current user and Windows SYSTEM, because GUI-subsystem executables do not
 reliably inherit the console's stdin handle. The key remains in memory and is
 never placed in a file, environment variable, or argument. CLI
 responses omit stored provider API keys, OAuth tokens, prompt content, and
-arbitrary UI settings. Destructive
-provider removal requires `--force`. Activity output uses Lane's existing
-redacted log. The command schema identifies secrets and mutations so agents do
-not need to infer them.
+arbitrary UI settings. Destructive provider removal requires `--force`.
+Activity output contains only Lane's redacted model-request traces; lifecycle,
+provider, browser-integration, model-discovery, and updater diagnostics are not
+exposed through the CLI. The command schema identifies secrets and mutations so
+agents do not need to infer them.
 
 ### Browser integration
 
@@ -125,7 +126,12 @@ short-lived port conflict on the configured port. If the conflict persists, the
 desktop UI can move to an available port only after confirmation; Lane does not
 terminate the unknown process holding the old port.
 
-Activity is persisted only after redaction. Gateway traces contain a random
+Logs are persisted only after redaction. The user-facing Activity projection
+contains only inference calls to Responses, Chat Completions, and Image
+Generations; model discovery, lifecycle events, and updater diagnostics are
+still recorded but remain outside Activity, and health checks and preflight
+requests are not recorded at all. Rejected client keys and denied origins stay
+in the log, and clearing Activity does not remove them. Model-request traces contain a random
 request ID, method, route, streaming mode, resolved model/provider, HTTP status,
 latency, token or image counts, cancellation state, and a bounded error code.
 By default they exclude prompts, model output, request headers and bodies, the Lane client
@@ -167,6 +173,18 @@ and stops only processes whose command exactly matches the current Lane app
 executable. It never invokes a shell, matches a process-name wildcard, or
 terminates an unrelated port owner.
 
+Packaging disables the `RunAsNode` and `EnableNodeOptionsEnvironmentVariable`
+Electron fuses before signing, so the signed binary cannot be re-used as a
+general Node interpreter by another local process seeking to inherit Lane's
+code-signing identity and its Keychain access. The
+`EnableNodeCliInspectArguments` fuse remains enabled because the packaged
+product E2E — including the release publish gate — drives the app through the
+main-process Node inspector; until that harness works without the inspector, a
+local process that can launch Lane with `--inspect-brk` retains a code-execution
+path into the signed binary. The signed release also keeps library validation
+on; only ad-hoc test bundles, which have no shared Team ID, are signed with an
+entitlement that relaxes it.
+
 The release workflow refuses to publish unless macOS signing/notarization and
 Azure Artifact Signing credentials are present. It verifies the expected signing
 identities, Gatekeeper assessment, stapled notarization ticket, Windows NSIS and
@@ -180,10 +198,12 @@ software-supply-chain risk.
 
 - A malicious local process with the Lane client key can spend against connected
   providers.
-- Once CLI integration is enabled, another process running as the same user can
-  retrieve the Lane client key, configure or remove providers, change the default
-  model, start or stop the gateway, and open Lane. It still cannot retrieve stored
-  provider API keys or OAuth tokens through the CLI protocol.
+- The CLI control socket is bound on every launch, because the browser
+  integration depends on it, so this applies whether or not CLI integration is
+  enabled: another process running as the same user can retrieve the Lane client
+  key, configure or remove providers, change the default model, start or stop the
+  gateway, and open Lane. It still cannot retrieve stored provider API keys or
+  OAuth tokens through the CLI protocol.
 - Provider and OAuth behavior can change upstream.
 - A renderer vulnerability could reveal the intentionally exposed Lane client
   key, though not upstream credentials.

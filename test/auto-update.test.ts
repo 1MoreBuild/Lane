@@ -19,6 +19,30 @@ function updater(value: FakeUpdater): AppUpdater {
 }
 
 describe("automatic updates", () => {
+  it("does not persist opaque updater transport chatter", () => {
+    const fake = new FakeUpdater();
+    const info = vi.fn();
+    const warn = vi.fn();
+    const controller = new LaneAutoUpdate({
+      updater: updater(fake),
+      logger: { info, warn },
+      onStateChanged: vi.fn(),
+      prepareToInstall: vi.fn(),
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    controller.start();
+
+    const internalLogger = (fake as unknown as {
+      logger: { info(message: unknown): void; warn(message: unknown): void };
+    }).logger;
+    internalLogger.info("/opaque-update-transport-path");
+    internalLogger.warn("transport warning");
+
+    expect(info).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith("Updater: transport warning");
+  });
+
   it("uses the stable channel and schedules standard periodic checks", async () => {
     const fake = new FakeUpdater();
     const delays: number[] = [];
@@ -79,6 +103,34 @@ describe("automatic updates", () => {
       { status: "downloading", version: "0.2.0", percent: 100 },
     ]);
     expect(prepareToInstall).toHaveBeenCalledOnce();
+    expect(fake.autoInstallOnAppQuit).toBe(true);
+  });
+
+  it("hands off to quitAndInstall before enabling install-on-quit", async () => {
+    // electron-updater's MacUpdater only starts the native Squirrel fetch from
+    // quitAndInstall when autoInstallOnAppQuit is still false; flipping the
+    // flag first left 0.1.11/0.1.12 stuck at "Downloading … 100%" forever.
+    const fake = new FakeUpdater();
+    const flagWhenCalled: boolean[] = [];
+    fake.quitAndInstall.mockImplementation(() => {
+      flagWhenCalled.push(fake.autoInstallOnAppQuit);
+    });
+    const controller = new LaneAutoUpdate({
+      updater: updater(fake),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      onStateChanged: vi.fn(),
+      prepareToInstall: vi.fn(async () => undefined),
+      scheduleTimeout: () => ({}),
+      scheduleInterval: () => ({}),
+    });
+    controller.start();
+
+    fake.emit("update-available", { version: "0.2.0" });
+    await controller.downloadAvailable();
+    fake.emit("update-downloaded", { version: "0.2.0" });
+    await vi.waitFor(() => expect(fake.quitAndInstall).toHaveBeenCalledOnce());
+
+    expect(flagWhenCalled).toEqual([false]);
     expect(fake.autoInstallOnAppQuit).toBe(true);
   });
 

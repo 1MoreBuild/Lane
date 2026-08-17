@@ -168,6 +168,140 @@ describe("gateway with a local pi-ai mock provider", () => {
     expect(JSON.stringify(logger.list())).not.toContain(clientKey);
   });
 
+  it("reports a streaming pre-flight failure with its real status", async () => {
+    const { url } = await setup();
+    for (const path of ["/v1/chat/completions", "/v1/responses"]) {
+      const body: Record<string, unknown> = { model: "does/not-exist", stream: true };
+      if (path === "/v1/chat/completions") body.messages = [{ role: "user", content: "hi" }];
+      else body.input = "hi";
+      const response = await fetch(`${url}${path}`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect((await response.json() as any).error.code).toBe("model_not_found");
+    }
+  });
+
+  it("gives every streamed output item its own index", async () => {
+    const { url } = await setup();
+    const response = await fetch(`${url}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        model: "mock/mock-model",
+        input: "parallel-tool-calls",
+        stream: true,
+      }),
+    });
+    expect(response.status).toBe(200);
+    const events = (await response.text())
+      .split("\n\n")
+      .flatMap((block) => {
+        const line = block.split("\n").find((part) => part.startsWith("data: "));
+        if (!line || line === "data: [DONE]") return [];
+        return [JSON.parse(line.slice("data: ".length)) as any];
+      });
+
+    const items = events
+      .filter((event) => event.type === "response.output_item.done")
+      .map((event) => [event.output_index, event.item.type, event.item.call_id]);
+    expect(items).toEqual([
+      [1, "function_call", "call_alpha"],
+      [2, "function_call", "call_beta"],
+      [0, "message", undefined],
+    ]);
+
+    const added = events.filter((event) => event.type === "response.output_item.added");
+    expect(added.map((event) => event.output_index)).toEqual([0]);
+    // Every announced item is also completed.
+    expect(new Set(items.map(([index]) => index))).toEqual(new Set([0, 1, 2]));
+
+    const completed = events.at(-1);
+    expect(completed.type).toBe("response.completed");
+    expect(completed.response.output.map((item: any) => item.type)).toEqual([
+      "message",
+      "function_call",
+      "function_call",
+    ]);
+  });
+
+  it("reports prompt tokens inclusive of the provider's cache", async () => {
+    const { url, logger } = await setup();
+    const response = await fetch(`${url}/v1/chat/completions`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        model: "mock/mock-model",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+    expect(response.status).toBe(200);
+    // The upstream reports prompt_tokens 3 of which 2 were cached.
+    expect((await response.json() as any).usage).toEqual({
+      prompt_tokens: 3,
+      prompt_tokens_details: { cached_tokens: 2 },
+      completion_tokens: 3,
+      total_tokens: 6,
+    });
+
+    const responses = await fetch(`${url}/v1/responses`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ model: "mock/mock-model", input: "hello" }),
+    });
+    expect((await responses.json() as any).usage).toEqual({
+      input_tokens: 3,
+      input_tokens_details: { cached_tokens: 2 },
+      output_tokens: 3,
+      total_tokens: 6,
+    });
+
+    const traced = logger
+      .list()
+      .find((entry) => entry.trace?.inputTokens !== undefined)?.trace;
+    expect(traced?.inputTokens).toBe(3);
+    expect(traced?.totalTokens).toBe(6);
+  });
+
+  it("logs rejected and non-model requests while keeping them out of activity", async () => {
+    const { url, logger } = await setup();
+    const rejected = await fetch(`${url}/v1/models`, {
+      headers: { Authorization: "Bearer wrong-key" },
+    });
+    expect(rejected.status).toBe(401);
+    const missing = await fetch(`${url}/v1/nowhere`, {
+      method: "POST",
+      headers: headers(),
+      body: "{}",
+    });
+    expect(missing.status).toBe(404);
+    const health = await fetch(`${url}/health`, { headers: headers() });
+    expect(health.status).toBe(200);
+
+    const completed = logger
+      .list()
+      .filter((entry) => entry.trace?.phase === "completed")
+      .map((entry) => entry.trace);
+    expect(completed).toEqual([
+      expect.objectContaining({
+        method: "GET",
+        path: "/v1/models",
+        status: 401,
+        errorCode: "invalid_lane_key",
+      }),
+      expect.objectContaining({
+        method: "POST",
+        path: "/v1/nowhere",
+        status: 404,
+        errorCode: "not_found",
+      }),
+    ]);
+    expect(logger.listActivity()).toEqual([]);
+  });
+
   it("captures exact request and response bodies only when capture is enabled", async () => {
     const { url, logger, gateway } = await setup();
     expect(gateway.isCaptureEnabled()).toBe(false);
@@ -321,10 +455,16 @@ describe("gateway with a local pi-ai mock provider", () => {
     expect(response.status).toBe(200);
     const body = await response.json() as any;
     expect(body.data).toHaveLength(2);
-    expect(Buffer.from(body.data[0].b64_json, "base64").toString()).toBe(
-      "mock-image-data",
-    );
-    expect(body.data[0].revised_prompt).toBe("revised: draw a lane");
+    // Each image keeps its own revised prompt rather than the first one's.
+    expect(
+      body.data.map((item: any) => [
+        Buffer.from(item.b64_json, "base64").toString(),
+        item.revised_prompt,
+      ]),
+    ).toEqual([
+      ["mock-image-data-0", "revised 0: draw a lane"],
+      ["mock-image-data-1", "revised 1: draw a lane"],
+    ]);
     expect(
       upstream.requests.find((request) => request.path === "/v1/images/generations"),
     ).toMatchObject({

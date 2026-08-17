@@ -68,7 +68,9 @@ function parseSse(value: string): ParsedSseEvent[] {
   return events;
 }
 
-const EVENT_LABELS: Record<string, string> = {
+// A Map, not an object: event names come from upstream and would otherwise
+// resolve inherited keys such as "__proto__" to non-string values.
+const EVENT_LABELS = new Map<string, string>(Object.entries({
   "response.created": "Response created",
   "response.in_progress": "Response started",
   "response.output_item.added": "Output item added",
@@ -82,10 +84,10 @@ const EVENT_LABELS: Record<string, string> = {
   "response.incomplete": "Response incomplete",
   error: "Error",
   "[DONE]": "Stream finished",
-};
+}));
 
 function eventLabel(event: string): string {
-  const known = EVENT_LABELS[event];
+  const known = EVENT_LABELS.get(event);
   if (known) return known;
   return event
     .replace(/^response\./u, "")

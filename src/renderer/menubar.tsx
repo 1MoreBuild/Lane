@@ -13,7 +13,12 @@ function App(): ReactNode {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const unsubscribe = window.lane.onStateChanged(setState);
+    // This window is created once and only hidden, so a failure would otherwise
+    // stay on screen for the rest of the session even after the gateway starts.
+    const unsubscribe = window.lane.onStateChanged((next) => {
+      setError("");
+      setState(next);
+    });
     window.lane.getState().then(setState).catch((value: unknown) => {
       setError(value instanceof Error ? value.message : String(value));
     });
