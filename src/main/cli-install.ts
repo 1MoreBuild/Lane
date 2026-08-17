@@ -29,8 +29,10 @@ async function isLinkTo(path: string, targetPath: string): Promise<boolean> {
 }
 
 function laneAppBundleForTarget(targetPath: string): string | undefined {
+  // realpath produces backslash separators on Windows, where the unit tests
+  // for this macOS-only path also run.
   const match = /^(.*\.app)\/Contents\/(?:MacOS\/Lane|Resources\/bin\/lane)$/.exec(
-    targetPath,
+    targetPath.replaceAll("\\", "/"),
   );
   return match?.[1];
 }
