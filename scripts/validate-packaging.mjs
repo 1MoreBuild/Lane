@@ -418,14 +418,17 @@ const fuseHook = await readWorkflow("./harden-fuses.mjs");
 if (pkg.build?.afterPack !== "scripts/harden-fuses.mjs") {
   failures.push("packaging must flip Electron fuses before signing");
 }
-for (const fuse of [
-  "RunAsNode",
-  "EnableNodeOptionsEnvironmentVariable",
-  "EnableNodeCliInspectArguments",
-]) {
+for (const fuse of ["RunAsNode", "EnableNodeOptionsEnvironmentVariable"]) {
   if (!new RegExp(`FuseV1Options\\.${fuse}\\]: false`).test(fuseHook)) {
     failures.push(`the ${fuse} fuse must stay disabled`);
   }
+}
+// Playwright drives the packaged app through --inspect=0; disabling this fuse
+// breaks every installed-product E2E including the release publish gate.
+if (/FuseV1Options\.EnableNodeCliInspectArguments\]: false/.test(fuseHook)) {
+  failures.push(
+    "EnableNodeCliInspectArguments must stay enabled until product E2E can drive the app without the inspector",
+  );
 }
 for (const entitlements of [
   "../build/entitlements.mac.plist",
