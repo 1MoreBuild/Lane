@@ -1,0 +1,1 @@
+- Automatic updates on macOS complete again: 0.1.11 and 0.1.12 could download an update and then wait at 100% forever because the installer handoff was never triggered.

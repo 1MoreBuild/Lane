@@ -6,6 +6,8 @@ import {
   readdir,
   stat,
   unlink,
+  utimes,
+  writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
 import type {
@@ -44,6 +46,7 @@ export function redact(value: unknown): string {
 export interface LaneLoggerOptions {
   directory?: string;
   maxEntries?: number;
+  maxActivityEntries?: number;
   retentionDays?: number;
   maxFileBytes?: number;
   maxTotalBytes?: number;
@@ -64,6 +67,38 @@ interface WritableLogFile {
 }
 
 type LogListener = (entry: LogEntry) => void;
+
+const MODEL_REQUEST_PATHS = new Set([
+  "/v1/responses",
+  "/v1/chat/completions",
+  "/v1/images/generations",
+]);
+
+export function isModelRequest(method: string, path: string): boolean {
+  return method === "POST" && MODEL_REQUEST_PATHS.has(path);
+}
+
+export function isModelActivityEntry(entry: LogEntry): boolean {
+  return Boolean(
+    entry.trace && isModelRequest(entry.trace.method, entry.trace.path),
+  );
+}
+
+function isPersistedModelActivity(line: string): boolean {
+  try {
+    const value: unknown = JSON.parse(line);
+    if (!value || typeof value !== "object") return false;
+    const trace = (value as { trace?: Partial<GatewayTrace> }).trace;
+    return (
+      typeof trace?.method === "string" &&
+      typeof trace.path === "string" &&
+      isModelRequest(trace.method, trace.path)
+    );
+  } catch {
+    // An unclassifiable line is kept: clearing activity must not drop diagnostics.
+    return false;
+  }
+}
 
 function cloneCapture(capture: GatewayCapture): GatewayCapture {
   return {
@@ -142,6 +177,7 @@ export class LaneLogger {
   private readonly entries: LogEntry[] = [];
   private readonly directory: string | undefined;
   private readonly maxEntries: number;
+  private readonly maxActivityEntries: number;
   private readonly retentionMs: number;
   private readonly maxFileBytes: number;
   private readonly maxTotalBytes: number;
@@ -156,6 +192,7 @@ export class LaneLogger {
   constructor(options: LaneLoggerOptions = {}) {
     this.directory = options.directory;
     this.maxEntries = options.maxEntries ?? 200;
+    this.maxActivityEntries = options.maxActivityEntries ?? 200;
     this.retentionMs = (options.retentionDays ?? DEFAULT_LOG_RETENTION_DAYS) * DAY_MS;
     this.maxFileBytes = options.maxFileBytes ?? DEFAULT_LOG_FILE_BYTES;
     this.maxTotalBytes = options.maxTotalBytes ?? DEFAULT_LOG_TOTAL_BYTES;
@@ -246,7 +283,7 @@ export class LaneLogger {
       }
     }
     loaded.sort((a, b) => a.timestamp - b.timestamp);
-    this.entries.splice(0, this.entries.length, ...loaded.slice(-this.maxEntries));
+    this.entries.splice(0, this.entries.length, ...this.withinBudget(loaded));
   }
 
   private datePrefix(timestamp: number): string {
@@ -290,6 +327,34 @@ export class LaneLogger {
     if (target.created) await this.cleanup();
   }
 
+  private withinBudget(entries: readonly LogEntry[]): LogEntry[] {
+    const excessOver = (
+      matches: (entry: LogEntry) => boolean,
+      limit: number,
+    ): number => Math.max(0, entries.filter(matches).length - limit);
+    let activityExcess = excessOver(isModelActivityEntry, this.maxActivityEntries);
+    let diagnosticExcess = excessOver(
+      (entry) => !isModelActivityEntry(entry),
+      this.maxEntries,
+    );
+    return entries.filter((entry) => {
+      if (isModelActivityEntry(entry)) {
+        if (activityExcess === 0) return true;
+        activityExcess -= 1;
+        return false;
+      }
+      if (diagnosticExcess === 0) return true;
+      diagnosticExcess -= 1;
+      return false;
+    });
+  }
+
+  private trimEntries(): void {
+    const retained = this.withinBudget(this.entries);
+    if (retained.length === this.entries.length) return;
+    this.entries.splice(0, this.entries.length, ...retained);
+  }
+
   private trimCaptures(): void {
     const captureBytes = (entry: LogEntry): number =>
       (entry.capture?.request?.capturedBytes ?? 0) +
@@ -318,7 +383,7 @@ export class LaneLogger {
       ...(capture ? { capture: cloneCapture(capture) } : {}),
     };
     this.entries.push(entry);
-    if (this.entries.length > this.maxEntries) this.entries.shift();
+    this.trimEntries();
     this.trimCaptures();
     if (this.persistenceEnabled) {
       this.writeChain = this.writeChain
@@ -367,6 +432,45 @@ export class LaneLogger {
       ...(entry.trace ? { trace: { ...entry.trace } } : {}),
       ...(entry.capture ? { capture: cloneCapture(entry.capture) } : {}),
     }));
+  }
+
+  listActivity(): LogEntry[] {
+    return this.list().filter(isModelActivityEntry);
+  }
+
+  private async removeModelActivityFrom(file: LogFileInfo): Promise<void> {
+    try {
+      const retained = (await readFile(file.path, "utf8"))
+        .split("\n")
+        .filter((line) => line && !isPersistedModelActivity(line));
+      if (retained.length === 0) {
+        await unlink(file.path);
+        return;
+      }
+      await writeFile(file.path, `${retained.join("\n")}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+      await chmod(file.path, 0o600);
+      // Retention is enforced by mtime, so rewriting must not extend a file's life.
+      const age = new Date(file.mtimeMs);
+      await utimes(file.path, age, age);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+
+  async clearActivity(): Promise<void> {
+    const retained = this.entries.filter((entry) => !isModelActivityEntry(entry));
+    this.entries.splice(0, this.entries.length, ...retained);
+    if (!this.directory || !this.persistenceEnabled) return;
+    const clearPersisted = this.writeChain.then(async () => {
+      for (const file of await this.files()) await this.removeModelActivityFrom(file);
+    });
+    this.writeChain = clearPersisted.catch(() => {
+      // Clearing activity must not make future diagnostic logging unavailable.
+    });
+    await clearPersisted;
   }
 
   async clear(): Promise<void> {

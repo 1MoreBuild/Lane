@@ -42,6 +42,8 @@ export function normalizeModels(payload: unknown): DiscoveredModel[] {
   return [...unique.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
+const DISCOVERY_TIMEOUT_MS = 30_000;
+
 export async function discoverModels(
   input: DiscoveryInput,
   fetcher: typeof fetch = fetch,
@@ -62,9 +64,11 @@ export async function discoverModels(
           "anthropic-version": "2023-06-01",
         }
       : { Authorization: `Bearer ${input.apiKey}` };
+  // No caller supplies a signal today, so without a deadline a base URL that
+  // completes its handshake and then stalls leaves the connect flow hanging.
   const response = await fetcher(base, {
     headers,
-    ...(signal ? { signal } : {}),
+    signal: signal ?? AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(`Provider model request failed (${response.status})`);

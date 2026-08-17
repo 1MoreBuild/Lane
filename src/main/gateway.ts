@@ -5,9 +5,10 @@ import type {
   GatewayCapturedBody,
   GatewayConfig,
 } from "../shared/contracts.ts";
-import { LaneLogger, redact } from "./logger.ts";
+import { isModelRequest, LaneLogger, redact } from "./logger.ts";
 import {
   chatCompletion,
+  chatUsage,
   collectEvents,
   parseChatRequest,
   parseResponsesRequest,
@@ -16,6 +17,7 @@ import {
 import type {
   CanonicalImageRequest,
   CanonicalRequest,
+  CanonicalUsage,
   ModelRuntime,
 } from "./runtime.ts";
 import { RuntimeError } from "./runtime.ts";
@@ -330,7 +332,7 @@ function streamHeaders(response: ServerResponse): void {
 
 interface GatewayExecutionSummary {
   model?: string;
-  usage?: { input: number; output: number; total: number };
+  usage?: CanonicalUsage;
   imageCount?: number;
 }
 
@@ -348,11 +350,17 @@ async function streamChat(
 ): Promise<GatewayExecutionSummary> {
   const id = `chatcmpl_${randomUUID()}`;
   const created = Math.floor(Date.now() / 1000);
-  streamHeaders(response);
   let model = request.model ?? "";
   let sentRole = false;
   let usage: GatewayExecutionSummary["usage"];
+  // Headers are flushed only once the provider yields, so a failure to resolve
+  // the model or reach the provider is still reported with its real status.
+  let streaming = false;
   for await (const event of runtime.stream(request, signal)) {
+    if (!streaming) {
+      streamHeaders(response);
+      streaming = true;
+    }
     if (event.type === "start") {
       model = event.model;
       sse(response, undefined, {
@@ -417,11 +425,7 @@ async function streamChat(
                   : "stop",
           },
         ],
-        usage: {
-          prompt_tokens: event.usage.input,
-          completion_tokens: event.usage.output,
-          total_tokens: event.usage.total,
-        },
+        usage: chatUsage(event.usage),
       });
     }
   }
@@ -446,8 +450,18 @@ async function streamResponses(
     arguments: Record<string, unknown>;
   }> = [];
   let usage: GatewayExecutionSummary["usage"];
-  streamHeaders(response);
+  // Each output item needs its own index, in the same order responsesCompletion
+  // assembles them, so a client keyed on output_index rebuilds the response.
+  let nextOutputIndex = 0;
+  let messageIndex: number | undefined;
+  // Headers are flushed only once the provider yields, so a failure to resolve
+  // the model or reach the provider is still reported with its real status.
+  let streaming = false;
   for await (const event of runtime.stream(request, signal)) {
+    if (!streaming) {
+      streamHeaders(response);
+      streaming = true;
+    }
     if (event.type === "start") {
       model = event.model;
       sse(response, "response.created", {
@@ -462,19 +476,28 @@ async function streamResponses(
           output: [],
         },
       });
-      sse(response, "response.output_item.added", {
-        type: "response.output_item.added",
-        sequence_number: sequence++,
-        output_index: 0,
-        item: { id: itemId, type: "message", status: "in_progress", role: "assistant", content: [] },
-      });
     } else if (event.type === "text_delta") {
       text += event.delta;
+      if (messageIndex === undefined) {
+        messageIndex = nextOutputIndex++;
+        sse(response, "response.output_item.added", {
+          type: "response.output_item.added",
+          sequence_number: sequence++,
+          output_index: messageIndex,
+          item: {
+            id: itemId,
+            type: "message",
+            status: "in_progress",
+            role: "assistant",
+            content: [],
+          },
+        });
+      }
       sse(response, "response.output_text.delta", {
         type: "response.output_text.delta",
         sequence_number: sequence++,
         item_id: itemId,
-        output_index: 0,
+        output_index: messageIndex,
         content_index: 0,
         delta: event.delta,
       });
@@ -483,7 +506,7 @@ async function streamResponses(
       sse(response, "response.output_item.done", {
         type: "response.output_item.done",
         sequence_number: sequence++,
-        output_index: 1,
+        output_index: nextOutputIndex++,
         item: {
           type: "function_call",
           id: `fc_${randomUUID()}`,
@@ -495,14 +518,28 @@ async function streamResponses(
       });
     } else if (event.type === "done") {
       usage = event.usage;
-      sse(response, "response.output_text.done", {
-        type: "response.output_text.done",
-        sequence_number: sequence++,
-        item_id: itemId,
-        output_index: 0,
-        content_index: 0,
-        text,
-      });
+      if (messageIndex !== undefined) {
+        sse(response, "response.output_text.done", {
+          type: "response.output_text.done",
+          sequence_number: sequence++,
+          item_id: itemId,
+          output_index: messageIndex,
+          content_index: 0,
+          text,
+        });
+        sse(response, "response.output_item.done", {
+          type: "response.output_item.done",
+          sequence_number: sequence++,
+          output_index: messageIndex,
+          item: {
+            id: itemId,
+            type: "message",
+            status: "completed",
+            role: "assistant",
+            content: [{ type: "output_text", text, annotations: [] }],
+          },
+        });
+      }
       const completed = responsesCompletion({
         model,
         text,
@@ -566,7 +603,7 @@ export class GatewayServer {
         }
       })();
       const shouldTrace = method !== "OPTIONS" && path !== "/health";
-      const captureThisRequest = shouldTrace && this.captureEnabled;
+      const captureThisRequest = isModelRequest(method, path) && this.captureEnabled;
       const requestRecorder = captureThisRequest ? new BodyRecorder() : undefined;
       const responseRecorder = captureThisRequest ? new BodyRecorder() : undefined;
       if (responseRecorder) responseRecorders.set(response, responseRecorder);

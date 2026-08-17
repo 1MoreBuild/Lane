@@ -1,0 +1,1 @@
+- Starting a second ChatGPT sign-in while one is already running now reports that a sign-in is in progress instead of orphaning the first one.

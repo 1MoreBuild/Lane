@@ -35,11 +35,11 @@
     "e2e:win:x64": "npm run package:e2e:win:x64 && cross-env LANE_E2E_APP_PATH=release/win-unpacked/Lane.exe npm run e2e",
     "e2e:nsis:win": "node scripts/e2e-nsis-windows.mjs",
     "validate:packaging": "node scripts/validate-packaging.mjs",
-    "package:mac": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --arm64 -c.mac.identity=-",
-    "package:mac:arm64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir dmg --arm64 --publish never -c.mac.identity=-",
-    "package:mac:x64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir dmg --x64 --publish never -c.mac.identity=-",
-    "package:e2e:mac:arm64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --arm64 --publish never -c.mac.identity=-",
-    "package:e2e:mac:x64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --x64 --publish never -c.mac.identity=-",
+    "package:mac": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --arm64 -c.mac.identity=- -c.mac.entitlements=build/entitlements.mac.adhoc.plist -c.mac.entitlementsInherit=build/entitlements.mac.adhoc.inherit.plist",
+    "package:mac:arm64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir dmg --arm64 --publish never -c.mac.identity=- -c.mac.entitlements=build/entitlements.mac.adhoc.plist -c.mac.entitlementsInherit=build/entitlements.mac.adhoc.inherit.plist",
+    "package:mac:x64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir dmg --x64 --publish never -c.mac.identity=- -c.mac.entitlements=build/entitlements.mac.adhoc.plist -c.mac.entitlementsInherit=build/entitlements.mac.adhoc.inherit.plist",
+    "package:e2e:mac:arm64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --arm64 --publish never -c.mac.identity=- -c.mac.entitlements=build/entitlements.mac.adhoc.plist -c.mac.entitlementsInherit=build/entitlements.mac.adhoc.inherit.plist",
+    "package:e2e:mac:x64": "npm run build:icon && npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --x64 --publish never -c.mac.identity=- -c.mac.entitlements=build/entitlements.mac.adhoc.plist -c.mac.entitlementsInherit=build/entitlements.mac.adhoc.inherit.plist",
     "package:e2e:win:x64": "npm run build:native-host && npm run build && electron-builder --win --x64 --dir --publish never",
     "package:mac:release:prepare": "npm run build:icon && npm run build:release",
     "package:mac:release:dist": "electron-builder --mac dmg zip --arm64 --x64 --publish never -c.mac.forceCodeSigning=true",
@@ -60,6 +60,7 @@
   },
   "devDependencies": {
     "@base-ui/react": "^1.6.0",
+    "@electron/fuses": "^1.8.0",
     "@eslint/js": "10.0.1",
     "@fontsource-variable/inter": "^5.3.0",
     "@lobehub/icons-static-svg": "^1.94.0",
@@ -96,6 +97,7 @@
     "appId": "works.earendil.lane",
     "productName": "Lane",
     "asar": true,
+    "afterPack": "scripts/harden-fuses.mjs",
     "directories": {
       "output": "release"
     },

@@ -426,6 +426,9 @@ test.describe("Lane packaged product journeys", () => {
     const capture = activity.getByRole("switch", {
       name: "Capture raw request and response bodies",
     });
+    await expect(
+      activity.getByText("No model requests yet", { exact: true }),
+    ).toBeVisible();
     await capture.click();
     await expect(capture).toBeChecked();
     await page.getByRole("button", { name: "Show Overview" }).click();
@@ -446,6 +449,20 @@ test.describe("Lane packaged product journeys", () => {
         expect.objectContaining({ id: expect.stringContaining("mock-image") }),
       ]),
     );
+    await page.getByRole("button", { name: "Open Activity" }).click();
+    await expect(
+      activity.getByText("No model requests yet", { exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Show Overview" }).click();
+
+    for (let index = 0; index < 6; index += 1) {
+      const overflowRequest = await fetch(`${apiBaseUrl}/responses`, {
+        method: "POST",
+        headers: headers(clientKey),
+        body: JSON.stringify({ input: `activity overflow ${index}` }),
+      });
+      expect(overflowRequest.status).toBe(200);
+    }
 
     const responses = await fetch(`${apiBaseUrl}/responses`, {
       method: "POST",
@@ -539,7 +556,9 @@ test.describe("Lane packaged product journeys", () => {
     await responsePanel.getByRole("button", { name: "Raw" }).click();
     await expect(responsePanel.getByLabel("Captured body")).toContainText("hello from mock");
     await activity.getByRole("button", { name: "Clear activity" }).click();
-    await expect(activity.getByText("No recent activity", { exact: true })).toBeVisible();
+    await expect(
+      activity.getByText("No model requests yet", { exact: true }),
+    ).toBeVisible();
   });
 
   test("copies an endpoint cURL and exposes Quit in the menu bar", async () => {
@@ -650,6 +669,37 @@ test.describe("Lane packaged product journeys", () => {
       });
       expect(message).toBe("Updates are unavailable in this build.");
     }
+  });
+
+  test("places an available update immediately before Activity", async () => {
+    const { app, page } = context.session!;
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find((candidate) =>
+        candidate.webContents.getURL().includes("index.html"),
+      );
+      if (!window) throw new Error("Lane main window is unavailable");
+      window.webContents.send("lane:update-state-changed", {
+        status: "available",
+        version: "9.9.9",
+      });
+    });
+
+    const update = page.getByRole("button", { name: "Download Lane 9.9.9" });
+    const activity = page.getByRole("button", { name: "Open Activity" });
+    await expect(update).toBeVisible();
+    const [updateBox, activityBox] = await Promise.all([
+      update.boundingBox(),
+      activity.boundingBox(),
+    ]);
+    expect(updateBox).not.toBeNull();
+    expect(activityBox).not.toBeNull();
+    expect(updateBox!.x + updateBox!.width).toBeLessThanOrEqual(activityBox!.x);
+    expect(Math.abs(updateBox!.y - activityBox!.y)).toBeLessThan(1);
+
+    await update.hover();
+    await expect(page.locator('[data-slot="tooltip-content"]')).toHaveText(
+      "Download Lane 9.9.9",
+    );
   });
 
   test("fits the default window and changes model defaults in the UI", async (

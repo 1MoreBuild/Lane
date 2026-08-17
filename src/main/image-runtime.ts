@@ -28,6 +28,29 @@ const CODEX_IMAGE_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const MAX_IMAGE_RESPONSE_BYTES = 128 * 1024 * 1024;
 const GPT_IMAGE_2_PATTERN = /^gpt-image-2(?:-|$)/;
 
+// Image endpoints answer chunked, so Content-Length cannot bound the download.
+// Reading incrementally stops a hostile base URL from exhausting main-process
+// memory before the size can be checked.
+async function boundedText(response: Response, limit: number): Promise<string> {
+  const body = response.body;
+  if (!body) return await response.text();
+  const reader = body.getReader();
+  const chunks: Buffer[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) throw new Error("Image provider response is too large");
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 const OPENAI_IMAGE_MODELS = [
   ["gpt-image-2", "GPT Image 2"],
   ["gpt-image-1.5", "GPT Image 1.5"],
@@ -202,10 +225,7 @@ export function createOpenAiImagesProvider(
           if (declaredSize > MAX_IMAGE_RESPONSE_BYTES) {
             throw new Error("Image provider response is too large");
           }
-          const raw = await response.text();
-          if (Buffer.byteLength(raw, "utf8") > MAX_IMAGE_RESPONSE_BYTES) {
-            throw new Error("Image provider response is too large");
-          }
+          const raw = await boundedText(response, MAX_IMAGE_RESPONSE_BYTES);
           let payload: OpenAiImageResponse & {
             error?: { message?: unknown; code?: unknown };
           };
@@ -409,16 +429,20 @@ export class PiAiImageRuntime {
         result.stopReason,
       );
     }
-    const revisedPrompt = result.output.find((item) => item.type === "text")?.text;
-    const images = result.output
-      .filter((item): item is Extract<(typeof result.output)[number], { type: "image" }> =>
-        item.type === "image",
-      )
-      .map((item) => ({
-        b64Json: item.data,
-        mimeType: item.mimeType,
-        ...(revisedPrompt ? { revisedPrompt } : {}),
-      }));
+    // The provider flattens each image and its own revised prompt into adjacent
+    // entries, so the text right after an image is the one describing it.
+    const images = result.output.flatMap((item, index) => {
+      if (item.type !== "image") return [];
+      const next = result.output[index + 1];
+      const revisedPrompt = next?.type === "text" ? next.text : undefined;
+      return [
+        {
+          b64Json: item.data,
+          mimeType: item.mimeType,
+          ...(revisedPrompt ? { revisedPrompt } : {}),
+        },
+      ];
+    });
     if (images.length === 0) {
       throw new RuntimeError("Image provider returned no image data");
     }

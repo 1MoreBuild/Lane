@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { LaneConfig, ProviderConfig } from "../shared/contracts.ts";
@@ -140,10 +141,12 @@ export class ConfigStore {
     }
   }
 
-  async save(config: LaneConfig): Promise<void> {
+  private async writeConfig(config: LaneConfig): Promise<void> {
     const validated = validateConfig(config);
     await mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 });
-    const temporary = `${this.filePath}.tmp`;
+    // A unique name per write: a shared one lets overlapping saves rename each
+    // other's bytes into place, or interleave them into unparseable settings.
+    const temporary = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
     await writeFile(temporary, `${JSON.stringify(validated, null, 2)}\n`, {
       encoding: "utf8",
       mode: 0o600,
@@ -151,11 +154,19 @@ export class ConfigStore {
     await rename(temporary, this.filePath);
   }
 
+  async save(config: LaneConfig): Promise<void> {
+    const write = this.chain
+      .catch(() => undefined)
+      .then(async () => await this.writeConfig(config));
+    this.chain = write.catch(() => undefined);
+    await write;
+  }
+
   async update(mutator: (current: LaneConfig) => LaneConfig | Promise<LaneConfig>): Promise<LaneConfig> {
     let result: LaneConfig | undefined;
     this.chain = this.chain.catch(() => undefined).then(async () => {
       result = validateConfig(await mutator(await this.load()));
-      await this.save(result);
+      await this.writeConfig(result);
     });
     await this.chain;
     if (!result) throw new Error("Settings update failed");

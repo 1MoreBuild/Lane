@@ -1,0 +1,1 @@
+- A provider whose stored credential can no longer be decrypted can now be removed instead of failing with "Invalid stored credential".

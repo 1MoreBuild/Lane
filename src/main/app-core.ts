@@ -248,8 +248,11 @@ export class AppCore {
         ? [...config.providers, provider]
         : [...config.providers.filter((item) => item.id !== id), provider];
     const providerModelPrefix = `${id}/`;
+    // Re-adding a kind that is already connected replaces its entry without
+    // being a reconnect, so a default naming a model the new key cannot serve
+    // has to be dropped in that case too.
     const keepDefault = (modelId: string | undefined): string | undefined => {
-      if (!existing || !modelId?.startsWith(providerModelPrefix)) return modelId;
+      if (!modelId?.startsWith(providerModelPrefix)) return modelId;
       return provider.models.includes(modelId.slice(providerModelPrefix.length))
         ? modelId
         : undefined;
@@ -328,7 +331,9 @@ export class AppCore {
     if (!config.providers.some((provider) => provider.id === providerId)) {
       throw new Error("Provider not found");
     }
-    const previousCredential = await this.credentials.read(providerId);
+    // An opaque snapshot, so a provider whose credential no longer decrypts
+    // can still be removed and still be rolled back if persisting fails.
+    const previousCredentialSnapshot = await this.credentials.snapshot(providerId);
     await this.credentials.delete(providerId);
     const defaultModel = config.defaultModel?.startsWith(`${providerId}/`)
       ? undefined
@@ -349,9 +354,7 @@ export class AppCore {
         ...(defaultImageModel ? { defaultImageModel } : {}),
       });
     } catch (error) {
-      if (previousCredential) {
-        await this.credentials.modify(providerId, async () => previousCredential);
-      }
+      await this.credentials.restore(providerId, previousCredentialSnapshot);
       throw error;
     }
     this.logger.info(`Removed provider ${providerId} and cleared its credential`);
@@ -619,13 +622,13 @@ export class AppCore {
       cliEnabled: config.cli.enabled,
       activityCaptureEnabled: this.gateway.isCaptureEnabled(),
       clientKey,
-      logs: this.logger.list(),
+      logs: this.logger.listActivity(),
     };
   }
 
   async clearActivity(): Promise<LaneState> {
     this.requireInitialized();
-    await this.logger.clear();
+    await this.logger.clearActivity();
     return await this.getState();
   }
 

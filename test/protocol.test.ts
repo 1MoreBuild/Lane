@@ -19,7 +19,7 @@ async function* events(): AsyncIterable<CanonicalEvent> {
   yield {
     type: "done",
     reason: "tool_calls",
-    usage: { input: 4, output: 3, total: 7 },
+    usage: { input: 4, cachedInput: 1, output: 3, total: 7 },
   };
 }
 
@@ -101,6 +101,31 @@ describe("OpenAI protocol adapters", () => {
     ];
     expect(chat.messages[0]).toEqual({ role: "user", content: expected });
     expect(responses.messages[0]).toEqual({ role: "user", content: expected });
+  });
+
+  it("skips replayed input items that carry no role", () => {
+    const request = parseResponsesRequest({
+      input: [
+        { role: "user", content: "first turn" },
+        { type: "reasoning", id: "rs_1", summary: [] },
+        { type: "item_reference", id: "msg_1" },
+        {
+          type: "function_call",
+          call_id: "call_1",
+          name: "lookup",
+          arguments: "{}",
+        },
+        { type: "function_call_output", call_id: "call_1", output: "done" },
+        { role: "user", content: "second turn" },
+      ],
+    });
+    expect(request.messages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "tool",
+      "user",
+    ]);
+    expect(request.messages.at(-1)).toEqual({ role: "user", content: "second turn" });
   });
 
   it("rejects remote image URLs instead of silently dropping them", () => {

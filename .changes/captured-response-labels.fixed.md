@@ -1,0 +1,1 @@
+- Inspecting a captured response no longer blanks the window when the upstream provider streams an event whose name collides with a built-in object key.

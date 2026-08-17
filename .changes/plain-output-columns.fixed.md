@@ -1,0 +1,1 @@
+- `--plain` output keeps one column per field, so rows missing an optional value no longer shift every later column.

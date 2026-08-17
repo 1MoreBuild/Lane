@@ -79,6 +79,16 @@ export interface CanonicalImageResult {
   images: CanonicalImage[];
 }
 
+// `input` counts every prompt token, cached ones included, matching what the
+// OpenAI-compatible surface reports as prompt_tokens. `cachedInput` is the
+// subset that was served from the provider's prompt cache.
+export interface CanonicalUsage {
+  input: number;
+  cachedInput: number;
+  output: number;
+  total: number;
+}
+
 export type CanonicalEvent =
   | { type: "start"; model: string }
   | { type: "text_delta"; delta: string }
@@ -86,7 +96,7 @@ export type CanonicalEvent =
   | {
       type: "done";
       reason: "stop" | "length" | "tool_calls";
-      usage: { input: number; output: number; total: number };
+      usage: CanonicalUsage;
       responseId?: string;
     };
 

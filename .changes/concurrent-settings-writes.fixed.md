@@ -1,0 +1,1 @@
+- Settings changed at the same moment from more than one place are written in order, so neither one silently replaces the other or leaves settings unreadable at the next launch.

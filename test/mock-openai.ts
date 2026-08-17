@@ -55,9 +55,9 @@ export async function startMockOpenAI(): Promise<MockOpenAI> {
         JSON.stringify({
           created: 1,
           output_format: body?.output_format ?? "png",
-          data: Array.from({ length: body?.n ?? 1 }, () => ({
-            b64_json: Buffer.from("mock-image-data").toString("base64"),
-            revised_prompt: `revised: ${body?.prompt ?? ""}`,
+          data: Array.from({ length: body?.n ?? 1 }, (_value, index) => ({
+            b64_json: Buffer.from(`mock-image-data-${index}`).toString("base64"),
+            revised_prompt: `revised ${index}: ${body?.prompt ?? ""}`,
           })),
         }),
       );
@@ -91,6 +91,49 @@ export async function startMockOpenAI(): Promise<MockOpenAI> {
         model: "mock-model",
         choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
       });
+      if (serialized.includes("parallel-tool-calls")) {
+        send({
+          id: "mock-chat",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "mock-model",
+          choices: [{ index: 0, delta: { content: "working" }, finish_reason: null }],
+        });
+        for (const [index, name] of ["alpha", "beta"].entries()) {
+          send({
+            id: "mock-chat",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "mock-model",
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  tool_calls: [
+                    {
+                      index,
+                      id: `call_${name}`,
+                      type: "function",
+                      function: { name, arguments: '{"value":1}' },
+                    },
+                  ],
+                },
+                finish_reason: null,
+              },
+            ],
+          });
+        }
+        send({
+          id: "mock-chat",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "mock-model",
+          choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+          usage: { prompt_tokens: 3, completion_tokens: 3, total_tokens: 6 },
+        });
+        response.end("data: [DONE]\n\n");
+        return;
+      }
       if (serialized.includes("slow-stream")) {
         const interval = setInterval(() => response.write(": waiting\n\n"), 50);
         response.on("close", () => {
@@ -119,7 +162,12 @@ export async function startMockOpenAI(): Promise<MockOpenAI> {
         created: 1,
         model: "mock-model",
         choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-        usage: { prompt_tokens: 3, completion_tokens: 3, total_tokens: 6 },
+        usage: {
+          prompt_tokens: 3,
+          completion_tokens: 3,
+          total_tokens: 6,
+          prompt_tokens_details: { cached_tokens: 2 },
+        },
       });
       response.end("data: [DONE]\n\n");
       return;
@@ -138,7 +186,12 @@ export async function startMockOpenAI(): Promise<MockOpenAI> {
             finish_reason: "stop",
           },
         ],
-        usage: { prompt_tokens: 3, completion_tokens: 3, total_tokens: 6 },
+        usage: {
+          prompt_tokens: 3,
+          completion_tokens: 3,
+          total_tokens: 6,
+          prompt_tokens_details: { cached_tokens: 2 },
+        },
       }),
     );
   });

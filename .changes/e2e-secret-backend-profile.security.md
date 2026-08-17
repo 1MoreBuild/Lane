@@ -1,0 +1,1 @@
+- The test-only credential backend can no longer be selected against a real Lane profile by launching the app with an empty test profile path, so stored provider keys and OAuth tokens stay under the operating system's protection.

@@ -414,6 +414,53 @@ for (const requiredGate of [
     failures.push(`stable release publishes before ${requiredGate}`);
   }
 }
+const fuseHook = await readWorkflow("./harden-fuses.mjs");
+if (pkg.build?.afterPack !== "scripts/harden-fuses.mjs") {
+  failures.push("packaging must flip Electron fuses before signing");
+}
+for (const fuse of [
+  "RunAsNode",
+  "EnableNodeOptionsEnvironmentVariable",
+  "EnableNodeCliInspectArguments",
+]) {
+  if (!new RegExp(`FuseV1Options\\.${fuse}\\]: false`).test(fuseHook)) {
+    failures.push(`the ${fuse} fuse must stay disabled`);
+  }
+}
+for (const entitlements of [
+  "../build/entitlements.mac.plist",
+  "../build/entitlements.mac.inherit.plist",
+]) {
+  if (/disable-library-validation/.test(await readWorkflow(entitlements))) {
+    failures.push(`${entitlements} must not disable library validation`);
+  }
+}
+// Ad-hoc bundles have no shared Team ID, so they need the entitlement the
+// signed release must not carry; they must therefore use their own file.
+for (const script of [
+  "package:mac",
+  "package:mac:arm64",
+  "package:mac:x64",
+  "package:e2e:mac:arm64",
+  "package:e2e:mac:x64",
+]) {
+  if (
+    !pkg.scripts?.[script]?.includes(
+      "-c.mac.entitlements=build/entitlements.mac.adhoc.plist",
+    ) ||
+    !pkg.scripts?.[script]?.includes(
+      "-c.mac.entitlementsInherit=build/entitlements.mac.adhoc.inherit.plist",
+    )
+  ) {
+    failures.push(`${script} must sign with the ad-hoc entitlements`);
+  }
+}
+if (
+  pkg.scripts?.["package:mac:release:dist"]?.includes("entitlements.mac.adhoc")
+) {
+  failures.push("the signed release must not use the ad-hoc entitlements");
+}
+
 if (failures.length > 0) {
   throw new Error(`Packaging validation failed: ${failures.join(", ")}`);
 }

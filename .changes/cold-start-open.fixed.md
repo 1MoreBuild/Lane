@@ -1,0 +1,1 @@
+- `lane open` on a cold start now waits for the window instead of reporting success while Lane stays hidden.

@@ -1,0 +1,1 @@
+- Clearing Activity now removes only model requests from the stored logs, keeping the diagnostic history that used to be discarded along with them.

@@ -127,7 +127,7 @@ Models and diagnostics:
                                  Set the default reasoning effort
   models set-speed --speed <standard|fast>
                                  Set the default response speed
-  activity                       Print redacted recent activity
+  activity                       Print redacted recent model requests
   schema                         Print the machine-readable command schema
 
 Flags:
@@ -326,14 +326,21 @@ function humanStatus(value: unknown): string {
 
 function tabular(value: unknown): string {
   if (!Array.isArray(value)) return "";
-  return `${value
-    .map((item) => {
-      const row = item as Record<string, unknown>;
-      return Object.values(row)
-        .filter((field) => typeof field !== "object")
-        .map((field) => String(field ?? ""))
-        .join("\t");
-    })
+  const rows = value.map((item) => item as Record<string, unknown>);
+  // Rows omit the fields they have no value for, so the columns are taken from
+  // the union of keys in first-seen order. Without this, a row missing an
+  // optional field shifts every later column and `cut -f` reads the wrong one.
+  const columns: string[] = [];
+  for (const row of rows) {
+    for (const [key, field] of Object.entries(row)) {
+      if (field !== null && typeof field === "object") continue;
+      if (!columns.includes(key)) columns.push(key);
+    }
+  }
+  return `${rows
+    .map((row) =>
+      columns.map((column) => String(row[column] ?? "")).join("\t"),
+    )
     .join("\n")}${value.length ? "\n" : ""}`;
 }
 
@@ -406,7 +413,7 @@ function humanOutput(command: LaneCliCommand, value: unknown): string {
           .join("\n")}\n`
       : "No providers configured.\n";
   }
-  if (command === "activity") return tabular(value) || "No recent activity.\n";
+  if (command === "activity") return tabular(value) || "No model requests yet.\n";
   if (command === "connection") {
     const connection = value as { api_base_url: string; client_key: string };
     return `API base URL: ${connection.api_base_url}\nLane client key: ${connection.client_key}\n`;

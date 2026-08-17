@@ -1,0 +1,1 @@
+- Released builds can no longer be re-used as a general Node interpreter by another local process, so Lane's code-signing identity and its access to stored credentials cannot be borrowed that way.

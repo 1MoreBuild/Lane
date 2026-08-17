@@ -1,0 +1,1 @@
+- Failures from clearing Activity, toggling body capture, and changing settings are now shown instead of leaving a control that silently snaps back.

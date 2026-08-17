@@ -10,6 +10,7 @@ import type {
   CanonicalUserContent,
   CanonicalTool,
   CanonicalToolCall,
+  CanonicalUsage,
 } from "./runtime.ts";
 import { RuntimeError } from "./runtime.ts";
 
@@ -293,9 +294,13 @@ function parseResponsesInput(value: unknown): ReturnType<typeof parseChatMessage
         tool_call_id: item.call_id,
         content: typeof item.output === "string" ? item.output : JSON.stringify(item.output),
       });
-    } else {
+    } else if (item.role !== undefined) {
       chatLike.push(item);
     }
+    // Agent loops replay their previous turn verbatim, which carries items such
+    // as `reasoning` and `item_reference` that have a type but no role. They
+    // hold no prompt content Lane can forward, so they are skipped rather than
+    // rejected, which would break the loop on its second turn.
   }
   return parseChatMessages(chatLike);
 }
@@ -329,8 +334,17 @@ export interface CollectedResult {
   text: string;
   toolCalls: CanonicalToolCall[];
   reason: "stop" | "length" | "tool_calls";
-  usage: { input: number; output: number; total: number };
+  usage: CanonicalUsage;
   responseId?: string;
+}
+
+export function chatUsage(usage: CanonicalUsage): JsonObject {
+  return {
+    prompt_tokens: usage.input,
+    prompt_tokens_details: { cached_tokens: usage.cachedInput },
+    completion_tokens: usage.output,
+    total_tokens: usage.total,
+  };
 }
 
 export async function collectEvents(events: AsyncIterable<CanonicalEvent>): Promise<CollectedResult> {
@@ -385,11 +399,7 @@ export function chatCompletion(result: CollectedResult, id = `chatcmpl_${randomU
               : "stop",
       },
     ],
-    usage: {
-      prompt_tokens: result.usage.input,
-      completion_tokens: result.usage.output,
-      total_tokens: result.usage.total,
-    },
+    usage: chatUsage(result.usage),
   };
 }
 
@@ -428,6 +438,7 @@ export function responsesCompletion(
     output_text: result.text,
     usage: {
       input_tokens: result.usage.input,
+      input_tokens_details: { cached_tokens: result.usage.cachedInput },
       output_tokens: result.usage.output,
       total_tokens: result.usage.total,
     },
