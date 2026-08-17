@@ -1,1 +1,0 @@
-- Released builds no longer accept a debugger through `--inspect` or `NODE_OPTIONS`, closing the last supported path for another local process to run code under Lane's code-signing identity.
