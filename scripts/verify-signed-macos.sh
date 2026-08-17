@@ -27,8 +27,7 @@ for app_path in "${app_paths[@]}"; do
   codesign --display --entitlements :- "$app_path" >"$entitlements_file" 2>/dev/null
   for entitlement in \
     com.apple.security.cs.allow-jit \
-    com.apple.security.cs.allow-unsigned-executable-memory \
-    com.apple.security.cs.disable-library-validation; do
+    com.apple.security.cs.allow-unsigned-executable-memory; do
     entitlement_value=$(/usr/libexec/PlistBuddy \
       -c "Print :$entitlement" "$entitlements_file" 2>/dev/null || true)
     if [[ "$entitlement_value" != "true" ]]; then
@@ -36,6 +35,16 @@ for app_path in "${app_paths[@]}"; do
       exit 1
     fi
   done
+  # The signed release shares one Team ID, so library validation must stay on;
+  # only ad-hoc test bundles are signed with the entitlement that relaxes it.
+  if library_validation=$(/usr/libexec/PlistBuddy \
+    -c "Print :com.apple.security.cs.disable-library-validation" \
+    "$entitlements_file" 2>/dev/null); then
+    if [[ "$library_validation" == "true" ]]; then
+      echo "Release app must not disable library validation" >&2
+      exit 1
+    fi
+  fi
   if get_task_allow=$(/usr/libexec/PlistBuddy \
     -c "Print :com.apple.security.get-task-allow" "$entitlements_file" 2>/dev/null); then
     if [[ "$get_task_allow" == "true" ]]; then
