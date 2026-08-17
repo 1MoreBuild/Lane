@@ -30,7 +30,8 @@ export type CliControlCommand =
   | "speed-mode-set"
   | "browser-client-connect"
   // Registered only in E2E mode; see e2e-control.ts.
-  | "e2e";
+  | "e2e"
+  | "quit";
 
 export interface CliControlRequest {
   version: typeof CLI_PROTOCOL_VERSION;
@@ -91,6 +92,7 @@ function isCommand(value: unknown): value is CliControlCommand {
     "speed-mode-set",
     "browser-client-connect",
     "e2e",
+    "quit",
   ].includes(String(value));
 }
 

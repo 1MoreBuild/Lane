@@ -494,6 +494,13 @@ async function cliResult(request: CliControlRequest, appCore: AppCore): Promise<
       })),
     };
   }
+  if (command === "quit") {
+    // Test-only: lets the harness exercise the real shutdown path instead of
+    // killing the process and stranding Electron helpers on the profile.
+    if (!e2eMode) throw new Error("Unsupported CLI command");
+    setTimeout(() => app.quit(), 0);
+    return { quitting: true };
+  }
   if (command === "e2e") {
     // Test-only main-process control, unavailable outside a temporary E2E profile.
     if (!e2eMode) throw new Error("Unsupported CLI command");
