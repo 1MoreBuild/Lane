@@ -19,6 +19,8 @@
 </p>
 
 <p align="center">
+  <a href="https://getlane.pages.dev"><strong>getlane.pages.dev</strong></a>
+  &middot;
   <a href="https://github.com/1MoreBuild/Lane/releases/latest"><strong>Download Lane for macOS or Windows →</strong></a>
 </p>
 

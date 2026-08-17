@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#070707" />
+    <meta
+      name="description"
+      content="Lane is a free, open-source gateway that turns AI subscriptions like ChatGPT / Codex and provider API keys into one private, OpenAI-compatible API on your desktop."
+    />
+    <link rel="canonical" href="https://getlane.pages.dev/" />
+    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css?v=11" />
+    <script type="module" src="/hero-lanes.js?v=8"></script>
+    <link
+      rel="preload"
+      as="image"
+      href="/assets/lane-hero-v5.png"
+      type="image/png"
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Lane" />
+    <meta
+      property="og:title"
+      content="Lane — Your AI providers. One private local API."
+    />
+    <meta
+      property="og:description"
+      content="Free and open source. Turn ChatGPT / Codex subscriptions and provider API keys into one local, OpenAI-compatible API for every app."
+    />
+    <meta property="og:url" content="https://getlane.pages.dev/" />
+    <meta
+      property="og:image"
+      content="https://getlane.pages.dev/assets/og.png"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Lane — One private local AI API" />
+    <meta
+      name="twitter:description"
+      content="Free and open source. Turn AI subscriptions and API keys into one local, OpenAI-compatible API."
+    />
+    <meta
+      name="twitter:image"
+      content="https://getlane.pages.dev/assets/og.png"
+    />
+    <title>Lane — One private local AI API</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Lane home">
+        <img src="/assets/icon.svg" width="34" height="34" alt="" />
+        <span>Lane</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="#security">Security</a>
+        <a
+          class="nav-github"
+          href="https://github.com/1MoreBuild/Lane"
+          target="_blank"
+          rel="noreferrer"
+        >
+          GitHub
+          <span aria-hidden="true">&#8599;</span>
+        </a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <svg
+          class="hero-lanes"
+          viewBox="0 0 1440 1020"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <defs>
+            <path id="lane-1" d="M -40 140 C 300 260, 720 380, 720 585" pathLength="1000" />
+            <path id="lane-2" d="M 150 -40 C 320 240, 720 400, 720 585" pathLength="1000" />
+            <path id="lane-3" d="M 560 -40 C 620 230, 720 430, 720 585" pathLength="1000" />
+            <path id="lane-4" d="M 880 -40 C 820 230, 720 430, 720 585" pathLength="1000" />
+            <path id="lane-5" d="M 1290 -40 C 1120 240, 720 400, 720 585" pathLength="1000" />
+            <path id="lane-6" d="M 1480 140 C 1140 260, 720 380, 720 585" pathLength="1000" />
+            <path id="lane-out" d="M 720 585 L 720 1020" pathLength="400" />
+            <linearGradient id="lane-sheen" x1="0" y1="0" x2="0" y2="1020" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#94a3b8" stop-opacity="0" />
+              <stop offset="0.32" stop-color="#cbd5e1" stop-opacity="0.45" />
+              <stop offset="0.57" stop-color="#f1f5f9" stop-opacity="0.85" />
+            </linearGradient>
+            <filter id="lane-blur" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="7" />
+            </filter>
+            <filter id="glint-blur" x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="2.2" />
+            </filter>
+          </defs>
+
+          <g class="lane-glow" filter="url(#lane-blur)">
+            <use href="#lane-1" /><use href="#lane-2" /><use href="#lane-3" />
+            <use href="#lane-4" /><use href="#lane-5" /><use href="#lane-6" />
+            <use class="lane-glow-out" href="#lane-out" />
+          </g>
+
+          <g class="lane-body">
+            <use href="#lane-1" /><use href="#lane-2" /><use href="#lane-3" />
+            <use href="#lane-4" /><use href="#lane-5" /><use href="#lane-6" />
+            <use class="lane-body-out" href="#lane-out" />
+          </g>
+
+          <g class="lane-glints" filter="url(#glint-blur)">
+            <use href="#lane-1" /><use href="#lane-2" /><use href="#lane-3" />
+            <use href="#lane-4" /><use href="#lane-5" /><use href="#lane-6" />
+          </g>
+          <g class="lane-glints lane-glints-sharp">
+            <use href="#lane-1" /><use href="#lane-2" /><use href="#lane-3" />
+            <use href="#lane-4" /><use href="#lane-5" /><use href="#lane-6" />
+          </g>
+          <use class="lane-glint-out" href="#lane-out" />
+
+          <circle class="merge-halo" cx="720" cy="585" r="10" />
+          <circle class="merge-core" cx="720" cy="585" r="2.8" />
+        </svg>
+        <div class="hero-copy">
+          <h1>Your AI providers.<br /><em>One private local API.</em></h1>
+          <p class="hero-lede">
+            Turn subscriptions like ChatGPT / Codex into an OpenAI-compatible
+            API for all your apps. Free and open source.
+          </p>
+          <div class="hero-actions">
+            <a
+              class="button button-primary"
+              href="https://github.com/1MoreBuild/Lane/releases/latest"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span data-download-label>Download Lane</span>
+              <span aria-hidden="true">&#8595;</span>
+            </a>
+          </div>
+          <p class="release-note">
+            MIT licensed &middot; Signed releases for macOS &amp; Windows
+          </p>
+        </div>
+
+        <figure class="product-shot">
+          <div class="product-shot-glow" aria-hidden="true"></div>
+          <img
+            src="/assets/lane-hero-v5.png"
+            width="1536"
+            height="1024"
+            alt="Lane running as a private local AI gateway on macOS"
+          />
+        </figure>
+      </section>
+
+      <section class="trust-strip" aria-label="Product principles">
+        <div>
+          <strong>127.0.0.1</strong>
+          <span>Loopback only</span>
+        </div>
+        <div>
+          <strong>Keychain</strong>
+          <span>Credentials stay secure</span>
+        </div>
+        <div>
+          <strong>OpenAI-compatible</strong>
+          <span>Use clients you already have</span>
+        </div>
+        <div>
+          <strong>No agent loop</strong>
+          <span>Tool calls return to your app</span>
+        </div>
+      </section>
+
+      <section class="section how" id="how-it-works">
+        <div class="section-heading">
+          <h2>One endpoint.<br />Your choice of provider.</h2>
+        </div>
+
+        <ol class="steps">
+          <li>
+            <span class="step-number">01</span>
+            <h3>Connect a provider</h3>
+            <p>Sign in with ChatGPT / Codex, or add a provider API key.</p>
+          </li>
+          <li>
+            <span class="step-number">02</span>
+            <h3>Choose your defaults</h3>
+            <p>Pick the default model, reasoning effort, and speed.</p>
+          </li>
+          <li>
+            <span class="step-number">03</span>
+            <h3>Point your app at Lane</h3>
+            <p>Copy the base URL and client key into any client.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="route-section" aria-labelledby="route-title">
+        <div class="route-card">
+          <div class="route-copy">
+            <h2 id="route-title">Local apps in.<br />Provider calls out.</h2>
+            <p>Lane is a gateway, not another cloud.</p>
+          </div>
+          <div
+            class="route-diagram"
+            role="img"
+            aria-label="Apps connect through Lane to AI providers"
+          >
+            <div class="route-node route-clients">
+              <span>Apps</span>
+              <small>Scripts &middot; Agents &middot; Extensions</small>
+            </div>
+            <div class="route-line" aria-hidden="true"><i></i></div>
+            <div class="route-node route-lane">
+              <img src="/assets/icon.svg" width="40" height="40" alt="" />
+              <span>Lane</span>
+              <small>127.0.0.1:3210</small>
+            </div>
+            <div class="route-line" aria-hidden="true"><i></i></div>
+            <div class="route-node route-providers">
+              <span>Providers</span>
+              <small>OpenAI &middot; Anthropic &middot; OpenRouter</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section security" id="security">
+        <div class="security-intro">
+          <h2>The useful boundary is a real boundary.</h2>
+          <p>
+            Provider credentials never reach web pages, extensions, API
+            responses, or CLI output.
+          </p>
+        </div>
+        <div class="security-list">
+          <article>
+            <span class="security-mark" aria-hidden="true"></span>
+            <div>
+              <h3>Fixed to loopback</h3>
+              <p>The gateway binds to <code>127.0.0.1</code>. No setting exposes it.</p>
+            </div>
+          </article>
+          <article>
+            <span class="security-mark" aria-hidden="true"></span>
+            <div>
+              <h3>Separate client key</h3>
+              <p>Every API route requires a random Lane client key.</p>
+            </div>
+          </article>
+          <article>
+            <span class="security-mark" aria-hidden="true"></span>
+            <div>
+              <h3>Explicit browser access</h3>
+              <p>Browser origins use an allowlist &mdash; never wildcard CORS.</p>
+            </div>
+          </article>
+          <article>
+            <span class="security-mark" aria-hidden="true"></span>
+            <div>
+              <h3>Redacted activity</h3>
+              <p>Logs keep metadata only: no prompts, output, or secrets.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section compatibility">
+        <div class="compatibility-copy">
+          <h2>OpenAI-shaped on the outside.<br />Multi-provider underneath.</h2>
+          <ul class="provider-list" aria-label="Supported providers">
+            <li>ChatGPT / Codex</li>
+            <li>OpenAI</li>
+            <li>Anthropic</li>
+            <li>OpenRouter</li>
+            <li>Custom endpoints</li>
+          </ul>
+        </div>
+        <section class="terminal" aria-label="Example request">
+          <div class="terminal-top">
+            <div aria-hidden="true"><i></i><i></i><i></i></div>
+            <span>Terminal</span>
+          </div>
+          <pre><code><span class="code-dim">$</span> curl http://127.0.0.1:3210/v1/models \
+  -H <span class="code-string">"Authorization: Bearer $LANE_CLIENT_KEY"</span>
+
+<span class="code-dim">$</span> lane status --json --no-input
+<span class="code-output">{ "gateway": "running", "provider": "openai" }</span></code></pre>
+        </section>
+      </section>
+
+    </main>
+
+    <footer class="closing">
+      <h2>Put your AI providers<br />in the same lane.</h2>
+      <a
+        class="button button-primary"
+        href="https://github.com/1MoreBuild/Lane/releases/latest"
+        target="_blank"
+        rel="noreferrer"
+      >
+        <span data-download-label>Download Lane</span>
+        <span aria-hidden="true">&#8595;</span>
+      </a>
+      <div class="closing-meta">
+        <span>Free and open source &middot; MIT</span>
+        <nav class="footer-links" aria-label="Footer">
+          <a
+            href="https://github.com/1MoreBuild/Lane"
+            target="_blank"
+            rel="noreferrer"
+            >GitHub</a
+          >
+          <a
+            href="https://github.com/1MoreBuild/Lane/releases"
+            target="_blank"
+            rel="noreferrer"
+            >Releases</a
+          >
+          <a
+            href="https://github.com/1MoreBuild/Lane/blob/main/LICENSE"
+            target="_blank"
+            rel="noreferrer"
+            >License</a
+          >
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>
