@@ -6,6 +6,14 @@ Notable user-visible changes are recorded here. Lane follows
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-08-17
+
+### Security
+
+- Released builds no longer accept a debugger through `--inspect` or
+  `NODE_OPTIONS`, closing the last supported path for another local process to
+  run code under Lane's code-signing identity and reach stored credentials.
+
 ## [0.1.14] - 2026-08-16
 
 ### Changed
