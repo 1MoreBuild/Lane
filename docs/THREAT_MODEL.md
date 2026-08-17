@@ -173,17 +173,18 @@ and stops only processes whose command exactly matches the current Lane app
 executable. It never invokes a shell, matches a process-name wildcard, or
 terminates an unrelated port owner.
 
-Packaging disables the `RunAsNode` and `EnableNodeOptionsEnvironmentVariable`
-Electron fuses before signing, so the signed binary cannot be re-used as a
-general Node interpreter by another local process seeking to inherit Lane's
-code-signing identity and its Keychain access. The
-`EnableNodeCliInspectArguments` fuse remains enabled because the packaged
-product E2E — including the release publish gate — drives the app through the
-main-process Node inspector; until that harness works without the inspector, a
-local process that can launch Lane with `--inspect-brk` retains a code-execution
-path into the signed binary. The signed release also keeps library validation
-on; only ad-hoc test bundles, which have no shared Team ID, are signed with an
-entitlement that relaxes it.
+Packaging disables the `RunAsNode`, `EnableNodeOptionsEnvironmentVariable`, and
+`EnableNodeCliInspectArguments` Electron fuses before signing, so the signed
+binary cannot be re-used as a general Node interpreter, and no `--inspect`
+argument or `NODE_OPTIONS` value can attach a debugger to it. Another local
+process therefore has no supported path to execute code under Lane's
+code-signing identity and inherit its Keychain access. The packaged product E2E
+launches the app directly and attaches over the renderer's DevTools endpoint
+rather than the main-process inspector; the few main-process assertions it needs
+go through a control-socket action set that is registered only in E2E mode, which
+itself requires a temporary user-data profile. The signed release also keeps
+library validation on; only ad-hoc test bundles, which have no shared Team ID,
+are signed with an entitlement that relaxes it.
 
 The release workflow refuses to publish unless macOS signing/notarization and
 Azure Artifact Signing credentials are present. It verifies the expected signing

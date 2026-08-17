@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isE2eControlAction, type E2eControlParams } from "../shared/e2e-control.ts";
 import { chmod, lstat, mkdir, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { dirname, join } from "node:path";
@@ -27,7 +28,9 @@ export type CliControlCommand =
   | "default-image-model-set"
   | "reasoning-effort-set"
   | "speed-mode-set"
-  | "browser-client-connect";
+  | "browser-client-connect"
+  // Registered only in E2E mode; see e2e-control.ts.
+  | "e2e";
 
 export interface CliControlRequest {
   version: typeof CLI_PROTOCOL_VERSION;
@@ -39,6 +42,7 @@ export interface CliControlRequest {
     reasoningEffort?: ReasoningEffort;
     speedMode?: SpeedMode;
     origin?: string;
+    e2e?: E2eControlParams;
   };
 }
 
@@ -86,6 +90,7 @@ function isCommand(value: unknown): value is CliControlCommand {
     "reasoning-effort-set",
     "speed-mode-set",
     "browser-client-connect",
+    "e2e",
   ].includes(String(value));
 }
 
@@ -137,6 +142,12 @@ function parseRequest(value: unknown): CliControlRequest {
     )
   ) {
     throw new Error("Effort must be low, medium, high, xhigh, or max");
+  }
+  if (
+    request.command === "e2e" &&
+    !isE2eControlAction(params?.e2e?.action)
+  ) {
+    throw new Error("Unsupported E2E action");
   }
   if (
     request.command === "speed-mode-set" &&

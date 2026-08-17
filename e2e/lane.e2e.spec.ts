@@ -5,14 +5,16 @@ import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
-  _electron as electron,
+  chromium,
   expect,
   test,
-  type ElectronApplication,
+  type BrowserContext,
   type Page,
   type TestInfo,
 } from "@playwright/test";
-import type { KeyboardEvent } from "electron";
+import type { ChildProcess } from "node:child_process";
+import { requestCliControl } from "../src/main/cli-control.ts";
+import type { E2eControlParams } from "../src/shared/e2e-control.ts";
 import { startMockOpenAI, type MockOpenAI } from "../test/mock-openai.ts";
 import { freePort } from "../test/helpers.ts";
 import {
@@ -20,8 +22,15 @@ import {
   TRANSLY_PRODUCTION_NATIVE_ALLOWED_ORIGIN,
 } from "../src/shared/native-messaging.ts";
 
+interface LaneApp {
+  process(): ChildProcess;
+  windows(): Page[];
+  context(): BrowserContext;
+  close(): Promise<void>;
+}
+
 interface LaneSession {
-  app: ElectronApplication;
+  app: LaneApp;
   page: Page;
 }
 
@@ -146,35 +155,105 @@ async function createContext(): Promise<LaneTestContext> {
   };
 }
 
-async function launchLane(
+// Main-process control over the CLI socket. Playwright's Electron helper drives
+// the main process through the Node inspector, which would require shipping the
+// EnableNodeCliInspectArguments fuse enabled; the packaged app is launched
+// directly instead and attached over the renderer's DevTools endpoint.
+async function laneControl(
   context: LaneTestContext,
-  testInfo: TestInfo,
-): Promise<LaneSession> {
-  const app = await electron.launch({
-    executablePath: packagedExecutable(),
-    env: e2eEnvironment({
-      LANE_DISABLE_AUTO_UPDATE: "1",
-      LANE_E2E_USER_DATA: context.userData,
-      LANE_E2E_SECRET_KEY: context.secretKey,
-      LANE_CONTROL_SOCKET: context.controlSocket,
-      LANE_E2E_CLI_COMMAND_PATH: context.cliCommandPath,
-    }),
-    artifactsDir: testInfo.outputPath("electron-artifacts"),
-  });
+  e2e: E2eControlParams,
+): Promise<any> {
+  // The control socket binds after the window is created, so the first call of a
+  // session can beat it; retry while the socket is still absent.
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    try {
+      const response = await requestCliControl(
+        context.controlSocket,
+        { command: "e2e", params: { e2e } },
+        10_000,
+      );
+      if (!response.ok) throw new Error(`E2E control failed: ${response.error.message}`);
+      return response.data;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const retryable = code === "ENOENT" || code === "ECONNREFUSED";
+      if (!retryable || Date.now() > deadline) throw error;
+      await new Promise((settle) => setTimeout(settle, 150));
+    }
+  }
+}
+
+async function launchLane(context: LaneTestContext): Promise<LaneSession> {
+  const child = spawn(
+    packagedExecutable(),
+    ["--remote-debugging-port=0"],
+    {
+      env: e2eEnvironment({
+        LANE_DISABLE_AUTO_UPDATE: "1",
+        LANE_E2E_USER_DATA: context.userData,
+        LANE_E2E_SECRET_KEY: context.secretKey,
+        LANE_CONTROL_SOCKET: context.controlSocket,
+        LANE_E2E_CLI_COMMAND_PATH: context.cliCommandPath,
+      }),
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   context.appExit = undefined;
-  app.process().once("exit", (code, signal) => {
+  child.once("exit", (code, signal) => {
     context.appExit = { code, signal };
   });
-  const page = await app.firstWindow();
-  const windowVisible = await app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows().some((window) => window.isVisible()),
-  );
-  expect(windowVisible).toBe(false);
-  if (process.platform === "win32") {
-    const menuBarVisible = await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows().some((window) => window.isMenuBarVisible()),
+
+  const endpoint = await new Promise<string>((resolveEndpoint, rejectEndpoint) => {
+    const timer = setTimeout(
+      () => rejectEndpoint(new Error(`Lane did not expose DevTools:\n${buffered}`)),
+      45_000,
     );
-    expect(menuBarVisible).toBe(false);
+    let buffered = "";
+    const scan = (chunk: Buffer) => {
+      buffered += chunk.toString("utf8");
+      const match = /DevTools listening on (ws:\/\/\S+)/.exec(buffered);
+      if (!match) return;
+      clearTimeout(timer);
+      resolveEndpoint(match[1]!);
+    };
+    child.stderr?.on("data", scan);
+    child.stdout?.on("data", scan);
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      rejectEndpoint(new Error(`Lane exited before DevTools was ready (code ${code})`));
+    });
+  });
+
+  const browser = await chromium.connectOverCDP(endpoint);
+  const browserContext = browser.contexts()[0]!;
+  const isMainWindow = (candidate: Page) => candidate.url().includes("index.html");
+  const page =
+    browserContext.pages().find(isMainWindow) ??
+    (await browserContext.waitForEvent("page", { predicate: isMainWindow }));
+
+  const app: LaneApp = {
+    process: () => child,
+    windows: () => browserContext.pages(),
+    context: () => browserContext,
+    close: async () => {
+      await browser.close().catch(() => undefined);
+      if (child.exitCode !== null) return;
+      const exited = new Promise<void>((settle) => child.once("exit", () => settle()));
+      child.kill();
+      // Wait for the process to release the temporary profile, otherwise the
+      // per-test cleanup races it and fails with ENOTEMPTY on macOS.
+      await Promise.race([
+        exited,
+        new Promise<void>((settle) => setTimeout(settle, 8_000)),
+      ]);
+    },
+  };
+
+  const windowState = await laneControl(context, { action: "window-state" });
+  expect(windowState.visible).toBe(false);
+  if (process.platform === "win32") {
+    expect(windowState.menu_bar_visible).toBe(false);
   }
   page.on("pageerror", (error) => {
     context.rendererErrors.push(error.message);
@@ -184,11 +263,10 @@ async function launchLane(
   });
   await page.waitForLoadState("domcontentloaded");
   await expect(page.getByRole("heading", { name: "Gateway" })).toBeVisible();
-  await app.context().tracing.start({
-    screenshots: true,
-    snapshots: true,
-    sources: true,
-  });
+  await app
+    .context()
+    .tracing.start({ screenshots: true, snapshots: true, sources: true })
+    .catch(() => undefined);
   const session = { app, page };
   context.session = session;
   return session;
@@ -372,7 +450,7 @@ async function restartWithCodexProvider(
     )}\n`,
     { mode: 0o600 },
   );
-  return await launchLane(context, testInfo);
+  return await launchLane(context);
 }
 
 async function startGateway(page: Page): Promise<{ apiBaseUrl: string; clientKey: string }> {
@@ -400,9 +478,9 @@ function headers(clientKey: string, origin?: string): Record<string, string> {
 test.describe("Lane packaged product journeys", () => {
   let context: LaneTestContext;
 
-  test.beforeEach(async ({ browserName: _browserName }, testInfo) => {
+  test.beforeEach(async ({ browserName: _browserName }) => {
     context = await createContext();
-    await launchLane(context, testInfo);
+    await launchLane(context);
   });
 
   test.afterEach(async ({ browserName: _browserName }, testInfo) => {
@@ -562,16 +640,10 @@ test.describe("Lane packaged product journeys", () => {
   });
 
   test("copies an endpoint cURL and exposes Quit in the menu bar", async () => {
-    const { app, page } = context.session!;
+    const { page } = context.session!;
     await connectMockProvider(page, context.upstream);
     const { apiBaseUrl, clientKey } = await startGateway(page);
-    await app.evaluate(({ clipboard }) => {
-      const capture = globalThis as typeof globalThis & { laneE2eClipboard?: string };
-      capture.laneE2eClipboard = "";
-      clipboard.writeText = (text: string) => {
-        capture.laneE2eClipboard = text;
-      };
-    });
+    await laneControl(context, { action: "clipboard-text" });
 
     await page.getByRole("button", { name: "View API endpoints" }).click();
     await expect(page.getByText("Not tested", { exact: true })).toBeVisible();
@@ -582,16 +654,14 @@ test.describe("Lane packaged product journeys", () => {
     const copyModelsCurl = page.getByRole("button", { name: "Copy Models cURL" });
     await copyModelsCurl.click();
     await expect(copyModelsCurl).toContainText("Copied");
-    const copied = await app.evaluate(() =>
-      (globalThis as typeof globalThis & { laneE2eClipboard?: string })
-        .laneE2eClipboard,
-    );
+    const copied = (await laneControl(context, { action: "clipboard-text" })).text;
     expect(copied).toBe(
       `curl --fail-with-body '${apiBaseUrl}/models' \\
   -H 'Authorization: Bearer ${clientKey}'`,
     );
 
     await page.evaluate(() => window.lane.setMenuBarIconVisible(true));
+    const { app } = context.session!;
     await expect.poll(() => app.windows().length).toBe(2);
     const menubarPage = app.windows().find((candidate) =>
       candidate.url().includes("menubar.html"),
@@ -602,23 +672,15 @@ test.describe("Lane packaged product journeys", () => {
   });
 
   test("opens exactly one Settings panel through the packaged platform controls", async () => {
-    const { app, page } = context.session!;
+    const { page } = context.session!;
 
     if (process.platform === "darwin") {
-      const menuLabels = await app.evaluate(({ Menu }) =>
-        Menu.getApplicationMenu()?.items[0]?.submenu?.items.map((item) => item.label) ?? [],
-      );
+      const menuLabels = (await laneControl(context, { action: "menu-labels" })).labels;
       expect(menuLabels).toEqual(
         expect.arrayContaining(["About Lane", "Settings…", "Check for Updates…", "Quit Lane"]),
       );
 
-      await app.evaluate(({ BrowserWindow, Menu }) => {
-        const settings = Menu.getApplicationMenu()?.items[0]?.submenu?.items.find(
-          (item) => item.label === "Settings…",
-        );
-        if (!settings?.click) throw new Error("Packaged Settings menu item is unavailable");
-        settings.click(settings, BrowserWindow.getFocusedWindow(), {} as KeyboardEvent);
-      });
+      await laneControl(context, { action: "menu-click", label: "Settings…" });
     } else {
       await page.getByRole("button", { name: "Open Settings" }).click();
     }
@@ -629,59 +691,25 @@ test.describe("Lane packaged product journeys", () => {
     await expect(page.getByText(/^Version \d+\.\d+\.\d+/)).toBeVisible();
     await page.getByRole("button", { name: "Check for updates" }).click();
     await expect(page.getByText(/Updates unavailable in this build/)).toBeVisible();
-    await expect.poll(() =>
-      app.evaluate(({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows().some((window) => window.isVisible()),
-      )
-    ).toBe(false);
+    await expect
+      .poll(async () => (await laneControl(context, { action: "window-state" })).visible)
+      .toBe(false);
 
     if (process.platform === "darwin") {
-      const message = await app.evaluate(async ({ BrowserWindow, Menu, dialog }) => {
-        const capture = globalThis as typeof globalThis & {
-          laneE2EUpdateMessage: string | undefined;
-        };
-        capture.laneE2EUpdateMessage = undefined;
-        const original = dialog.showMessageBox;
-        dialog.showMessageBox = (async (...args) => {
-          const options = args.at(-1);
-          if (
-            typeof options !== "object" ||
-            options === null ||
-            !("message" in options) ||
-            typeof options.message !== "string"
-          ) {
-            throw new Error("Packaged update dialog options are unavailable");
-          }
-          capture.laneE2EUpdateMessage = options.message;
-          return { response: 0, checkboxChecked: false };
-        }) as typeof dialog.showMessageBox;
-        try {
-          const update = Menu.getApplicationMenu()?.items[0]?.submenu?.items.find(
-            (item) => item.label === "Check for Updates…",
-          );
-          if (!update?.click) throw new Error("Packaged update menu item is unavailable");
-          update.click(update, BrowserWindow.getFocusedWindow(), {} as KeyboardEvent);
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          return capture.laneE2EUpdateMessage;
-        } finally {
-          dialog.showMessageBox = original;
-        }
-      });
-      expect(message).toBe("Updates are unavailable in this build.");
+      await laneControl(context, { action: "stub-dialogs" });
+      await laneControl(context, { action: "menu-click", label: "Check for Updates…" });
+      await expect
+        .poll(async () => (await laneControl(context, { action: "dialog-message" })).message)
+        .toBe("Updates are unavailable in this build.");
     }
   });
 
   test("places an available update immediately before Activity", async () => {
-    const { app, page } = context.session!;
-    await app.evaluate(({ BrowserWindow }) => {
-      const window = BrowserWindow.getAllWindows().find((candidate) =>
-        candidate.webContents.getURL().includes("index.html"),
-      );
-      if (!window) throw new Error("Lane main window is unavailable");
-      window.webContents.send("lane:update-state-changed", {
-        status: "available",
-        version: "9.9.9",
-      });
+    const { page } = context.session!;
+    await laneControl(context, {
+      action: "push-update-state",
+      channel: "lane:update-state-changed",
+      payload: { status: "available", version: "9.9.9" },
     });
 
     const update = page.getByRole("button", { name: "Download Lane 9.9.9" });
@@ -747,7 +775,7 @@ test.describe("Lane packaged product journeys", () => {
     });
 
     await closeLane(context, testInfo, false);
-    ({ page } = await launchLane(context, testInfo));
+    ({ page } = await launchLane(context));
     await expect(page.getByRole("combobox", { name: "Effort" })).toContainText(
       "Ultra",
     );
@@ -759,10 +787,8 @@ test.describe("Lane packaged product journeys", () => {
   test("adapts the overview and activity workspace to a wide window", async ({
     browserName: _browserName,
   }, testInfo) => {
-    const { app, page } = context.session!;
-    await app.evaluate(({ BrowserWindow }) => {
-      BrowserWindow.getAllWindows()[0]?.setSize(1440, 900);
-    });
+    const { page } = context.session!;
+    await laneControl(context, { action: "set-window-size", width: 1440, height: 900 });
     await expect.poll(() => page.evaluate(() => window.innerWidth)).toBeGreaterThan(1300);
 
     const gatewayBox = await page.locator('[data-lane-section="gateway"]').boundingBox();
@@ -1024,7 +1050,7 @@ test.describe("Lane packaged product journeys", () => {
     expect(secretsBeforeRestart).not.toContain("mock-upstream-key");
     expect(secretsBeforeRestart).not.toContain(initial.clientKey);
 
-    ({ page } = await launchLane(context, testInfo));
+    ({ page } = await launchLane(context));
     await expect(page.getByText("Mock", { exact: true })).toBeVisible();
     await expect(page.getByText("Connected · 2 models")).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Default model" })).toContainText(
@@ -1075,7 +1101,7 @@ test.describe("Lane packaged product journeys", () => {
       mode: 0o600,
     });
 
-    ({ page } = await launchLane(context, testInfo));
+    ({ page } = await launchLane(context));
     await expect(page.getByText("Needs reconnection")).toBeVisible();
     await page.getByRole("button", { name: "Reconnect" }).click();
     const dialog = page.getByRole("dialog", { name: "Reconnect Mock" });
@@ -1146,12 +1172,7 @@ test.describe("Lane packaged product journeys", () => {
       occupied.listen(context.gatewayPort, "127.0.0.1", resolveListen);
     });
     try {
-      await context.session!.app.evaluate(({ dialog }) => {
-        dialog.showMessageBox = async () => ({
-          response: 0,
-          checkboxChecked: false,
-        });
-      });
+      await laneControl(context, { action: "stub-dialogs" });
       const page = context.session!.page;
       const gateway = page.getByRole("switch", { name: "Local gateway" });
       await gateway.click();
