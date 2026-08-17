@@ -8,6 +8,9 @@ export default tseslint.config(
       "release/**",
       "coverage/**",
       "node_modules/**",
+      // Static marketing site with vendored browser libraries; not part of
+      // the application lint surface.
+      "website/**",
       "playwright-report/**",
       "test-results/**",
     ],
