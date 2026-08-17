@@ -99,6 +99,11 @@ const PROVIDER_OPTIONS = [
     label: "ChatGPT / Codex",
     description: "Browser OAuth",
   },
+  {
+    value: "claude-code",
+    label: "Claude Code",
+    description: "Local Claude CLI",
+  },
   { value: "openai", label: "OpenAI", description: "API key" },
   { value: "anthropic", label: "Anthropic", description: "API key" },
   { value: "openrouter", label: "OpenRouter", description: "API key" },
@@ -331,6 +336,7 @@ function IconAction({
 
 const PROVIDER_ICONS: Partial<Record<ProviderKind, string>> = {
   "openai-codex": openAiIcon,
+  "claude-code": anthropicIcon,
   openai: openAiIcon,
   anthropic: anthropicIcon,
   openrouter: openRouterIcon,
@@ -346,6 +352,7 @@ function ProviderIcon({
   const icon = PROVIDER_ICONS[provider.kind];
   const label: Record<ProviderKind, string> = {
     "openai-codex": "Codex",
+    "claude-code": "Claude Code",
     openai: "OpenAI",
     anthropic: "Anthropic",
     openrouter: "OpenRouter",
@@ -390,6 +397,8 @@ function providerGroupLabel(provider?: ProviderStatus): string {
       return "Anthropic";
     case "openrouter":
       return "OpenRouter";
+    case "claude-code":
+      return "Claude Code";
     case "custom-openai":
       return provider.name;
   }
@@ -790,15 +799,15 @@ function App(): ReactNode {
     }
   }
 
-  async function connectProvider(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
+  async function connectProvider(event?: FormEvent<HTMLFormElement>): Promise<void> {
+    event?.preventDefault();
     setProviderBusy(true);
     setProviderError("");
     try {
       const input: AddProviderInput = {
         ...(reconnectTarget ? { providerId: reconnectTarget.id } : {}),
         kind: providerKind as AddProviderInput["kind"],
-        apiKey,
+        ...(providerKind === "claude-code" ? {} : { apiKey }),
         ...(providerName.trim() ? { name: providerName.trim() } : {}),
         ...(providerKind === "custom-openai" && baseUrl.trim()
           ? { baseUrl: baseUrl.trim() }
@@ -1329,7 +1338,36 @@ function App(): ReactNode {
                         </Select>
                       </label>
 
-                      {providerKind === "openai-codex" ? (
+                      {providerKind === "claude-code" ? (
+                        <div className="grid gap-4 rounded-lg bg-muted/55 p-4">
+                          <div className="flex items-start gap-3">
+                            <ProviderIcon provider={{ kind: "claude-code" }} />
+                            <div>
+                              <p className="lane-value">Uses your Claude Code sign-in</p>
+                              <p className="lane-meta mt-0.5 text-muted-foreground">
+                                Lane talks to the local claude CLI, so requests run
+                                on the account it is already signed in to. No API
+                                key is stored.
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            disabled={providerBusy}
+                            focusableWhenDisabled
+                            onClick={() => {
+                              void connectProvider();
+                            }}
+                          >
+                            {providerBusy && (
+                              <LoaderCircle
+                                className="size-4 animate-spin stroke-[1.8]"
+                                data-icon="inline-start"
+                              />
+                            )}
+                            {providerBusy ? "Checking CLI…" : "Connect Claude Code"}
+                          </Button>
+                        </div>
+                      ) : providerKind === "openai-codex" ? (
                         <div className="grid gap-4 rounded-lg bg-muted/55 p-4">
                           <div className="flex items-start gap-3">
                             <ProviderIcon provider={{ kind: "openai-codex" }} />

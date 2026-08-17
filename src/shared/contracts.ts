@@ -1,5 +1,6 @@
 export type ProviderKind =
   | "openai-codex"
+  | "claude-code"
   | "openai"
   | "anthropic"
   | "openrouter"
@@ -10,6 +11,8 @@ export interface ProviderConfig {
   kind: ProviderKind;
   name: string;
   baseUrl?: string;
+  /** Absolute path to the local CLI executable (claude-code providers). */
+  command?: string;
   models: string[];
   createdAt: number;
 }
@@ -51,7 +54,7 @@ export interface ProviderStatus {
   name: string;
   connected: boolean;
   needsReconnection?: boolean;
-  authType?: "api_key" | "oauth";
+  authType?: "api_key" | "oauth" | "local_cli";
   baseUrl?: string;
   models: string[];
   error?: string;
@@ -173,8 +176,11 @@ export interface AddProviderInput {
   providerId?: string;
   kind: Exclude<ProviderKind, "openai-codex">;
   name?: string;
-  apiKey: string;
+  /** Required except for claude-code, which authenticates through its CLI. */
+  apiKey?: string;
   baseUrl?: string;
+  /** Optional CLI executable override (claude-code only). */
+  command?: string;
 }
 
 export type LaneUpdateState =

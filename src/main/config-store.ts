@@ -40,9 +40,14 @@ function isProviderConfig(value: unknown): value is ProviderConfig {
   const item = value as Partial<ProviderConfig>;
   return (
     typeof item.id === "string" &&
-    ["openai-codex", "openai", "anthropic", "openrouter", "custom-openai"].includes(
-      item.kind ?? "",
-    ) &&
+    [
+      "openai-codex",
+      "claude-code",
+      "openai",
+      "anthropic",
+      "openrouter",
+      "custom-openai",
+    ].includes(item.kind ?? "") &&
     typeof item.name === "string" &&
     Array.isArray(item.models) &&
     item.models.every((model) => typeof model === "string") &&

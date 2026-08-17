@@ -370,10 +370,19 @@ async function startGatewayFromUi(
 function validateProviderInput(value: unknown): AddProviderInput {
   if (!value || typeof value !== "object") throw new Error("Provider input is required");
   const input = value as Partial<AddProviderInput>;
-  if (!["openai", "anthropic", "openrouter", "custom-openai"].includes(input.kind ?? "")) {
+  if (
+    !["claude-code", "openai", "anthropic", "openrouter", "custom-openai"].includes(
+      input.kind ?? "",
+    )
+  ) {
     throw new Error("Unsupported provider type");
   }
-  if (typeof input.apiKey !== "string" || !input.apiKey.trim()) throw new Error("API key is required");
+  if (
+    input.kind !== "claude-code" &&
+    (typeof input.apiKey !== "string" || !input.apiKey.trim())
+  ) {
+    throw new Error("API key is required");
+  }
   if (
     input.kind === "custom-openai" &&
     typeof input.providerId !== "string" &&
@@ -384,7 +393,7 @@ function validateProviderInput(value: unknown): AddProviderInput {
   return {
     ...(typeof input.providerId === "string" ? { providerId: input.providerId } : {}),
     kind: input.kind as AddProviderInput["kind"],
-    apiKey: input.apiKey,
+    ...(typeof input.apiKey === "string" ? { apiKey: input.apiKey } : {}),
     ...(typeof input.name === "string" ? { name: input.name } : {}),
     ...(typeof input.baseUrl === "string" ? { baseUrl: input.baseUrl } : {}),
   };

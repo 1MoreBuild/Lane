@@ -7,12 +7,16 @@ export interface DiscoveredModel {
 }
 
 export interface DiscoveryInput {
-  kind: Exclude<ProviderKind, "openai-codex">;
+  // claude-code discovers through its CLI, not an HTTP models endpoint.
+  kind: Exclude<ProviderKind, "openai-codex" | "claude-code">;
   apiKey: string;
   baseUrl?: string;
 }
 
-const DEFAULT_BASE_URLS: Record<Exclude<ProviderKind, "openai-codex" | "custom-openai">, string> = {
+const DEFAULT_BASE_URLS: Record<
+  Exclude<ProviderKind, "openai-codex" | "claude-code" | "custom-openai">,
+  string
+> = {
   openai: "https://api.openai.com/v1",
   anthropic: "https://api.anthropic.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
