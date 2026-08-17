@@ -50,6 +50,7 @@ import { SecureCredentialStore } from "./credential-store.ts";
 import { testGatewayConnectivity } from "./gateway-connectivity.ts";
 import { ElectronSecretBackend } from "./electron-secret-backend.ts";
 import { E2ESecretBackend } from "./e2e-secret-backend.ts";
+import { runE2eControl } from "./e2e-control.ts";
 import { isModelActivityEntry, LaneLogger, redact } from "./logger.ts";
 import { runLaneNativeHost } from "./native-messaging.ts";
 import { NativeMessagingInstaller } from "./native-messaging-install.ts";
@@ -492,6 +493,11 @@ async function cliResult(request: CliControlRequest, appCore: AppCore): Promise<
         url: getLaneApiUrl(state.gateway.endpoint, route.path),
       })),
     };
+  }
+  if (command === "e2e") {
+    // Test-only main-process control, unavailable outside a temporary E2E profile.
+    if (!e2eMode) throw new Error("Unsupported CLI command");
+    return await runE2eControl(request.params?.e2e ?? {});
   }
   if (command === "providers-list") return publicProviders(state);
   if (command === "activity") {
