@@ -1,6 +1,6 @@
 // Hero background: Paper Shaders "god rays" (Linear preset), MIT-licensed,
-// vendored under /assets/vendor/paper-shaders/. The SVG lanes stay as the
-// fallback when WebGL or JavaScript is unavailable.
+// vendored under /assets/vendor/paper-shaders/. Without JavaScript or WebGL
+// the hero simply keeps its plain dark background.
 import { ShaderMount } from "/assets/vendor/paper-shaders/shader-mount.js";
 import { godRaysFragmentShader } from "/assets/vendor/paper-shaders/shaders/god-rays.js";
 import { getShaderColorFromString } from "/assets/vendor/paper-shaders/get-shader-color-from-string.js";
@@ -30,8 +30,8 @@ import {
   }
 }
 
-const svg = document.querySelector(".hero-lanes");
-if (svg) {
+const hero = document.querySelector(".hero");
+if (hero) {
   // The library injects an inline <style> unless one is already marked; the
   // same rules live in styles.css, so pre-marking keeps CSP's style-src 'self'.
   if (!document.querySelector("style[data-paper-shader]")) {
@@ -43,7 +43,7 @@ if (svg) {
   const container = document.createElement("div");
   container.className = "hero-lanes-gl";
   container.setAttribute("aria-hidden", "true");
-  svg.parentElement.insertBefore(container, svg);
+  hero.prepend(container);
 
   const SPEED = 0.5;
   const uniforms = {
