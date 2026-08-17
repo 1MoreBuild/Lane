@@ -6,6 +6,14 @@ Notable user-visible changes are recorded here. Lane follows
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-08-15
+
+### Changed
+
+- Maintenance release with no user-visible application changes. Release
+  preparation now refreshes and verifies the latest remote `main`, stable tag,
+  and GitHub Release before versioning or publication.
+
 ## [0.1.12] - 2026-08-15
 
 ### Fixed
@@ -148,7 +156,8 @@ Notable user-visible changes are recorded here. Lane follows
 - Restricted the gateway to IPv4 loopback, required a separate Lane client
   key, and enforced explicit browser-origin allowlists.
 
-[Unreleased]: https://github.com/1MoreBuild/Lane/compare/v0.1.12...HEAD
+[Unreleased]: https://github.com/1MoreBuild/Lane/compare/v0.1.13...HEAD
+[0.1.13]: https://github.com/1MoreBuild/Lane/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/1MoreBuild/Lane/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/1MoreBuild/Lane/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/1MoreBuild/Lane/compare/v0.1.9...v0.1.10
