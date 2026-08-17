@@ -1,1 +1,0 @@
-- Image responses are read against their size limit as they arrive rather than after being held in memory, and each generated image keeps its own revised prompt when more than one is requested.

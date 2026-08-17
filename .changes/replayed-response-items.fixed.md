@@ -1,1 +1,0 @@
-- Agent loops that replay a previous turn's reasoning or item references back to the Responses API no longer fail on the second turn.

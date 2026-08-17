@@ -1,1 +1,0 @@
-- Reported prompt tokens now include tokens served from a provider's prompt cache, so usage adds up and cost tracking no longer under-counts cached requests; responses also carry the cached-token breakdown.

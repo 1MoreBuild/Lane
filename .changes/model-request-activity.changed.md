@@ -1,1 +1,0 @@
-- Activity now shows only model inference requests, keeping startup, integration, model-list, and updater diagnostics out of the request inspector.

@@ -1,1 +1,0 @@
-- A failed ChatGPT sign-in now clears its code prompt, the provider type cannot be switched mid-sign-in, and submitting a code once the flow has ended reports it rather than appearing to work.

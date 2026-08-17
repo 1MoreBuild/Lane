@@ -6,6 +6,78 @@ Notable user-visible changes are recorded here. Lane follows
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-08-16
+
+### Changed
+
+- Activity now shows only model inference requests, keeping startup,
+  integration, model-list, and updater diagnostics out of the request
+  inspector, and keeps its own retention budget so a burst of diagnostics
+  cannot push recent requests out of view.
+- Moved the available-update control into the window toolbar, immediately
+  before Activity, so update progress and downloads stay visible with the
+  primary app controls.
+
+### Fixed
+
+- Automatic updates on macOS complete again: 0.1.11 through 0.1.13 could
+  download an update and then wait at 100% forever because the installer
+  handoff was never triggered. Updating from those versions to 0.1.14 still
+  requires one manual install.
+- Reported prompt tokens now include tokens served from a provider's prompt
+  cache, so usage adds up and cost tracking no longer under-counts cached
+  requests; responses also carry the cached-token breakdown.
+- Each item in a streamed Responses reply now carries its own output index and
+  is properly completed, so clients that assemble parallel tool calls by index
+  no longer collapse them into one.
+- A streaming request for a model that does not exist, or to a provider that
+  cannot be reached, now returns the real error status instead of a 200 stream
+  carrying an error event.
+- Agent loops that replay a previous turn's reasoning or item references back
+  to the Responses API no longer fail on the second turn.
+- Image responses are read against their size limit as they arrive rather than
+  after being held in memory, and each generated image keeps its own revised
+  prompt when more than one is requested.
+- Connecting a provider whose endpoint accepts the connection and then stalls
+  now fails after 30 seconds instead of leaving the dialog waiting forever.
+- Clearing Activity now removes only model requests from the stored logs,
+  keeping the diagnostic history that used to be discarded along with them.
+- Rejected client keys, denied browser origins, and unknown routes are recorded
+  again, so a refused request still leaves a trace even though it stays out of
+  Activity.
+- Inspecting a captured response no longer blanks the window when the upstream
+  provider streams an event whose name collides with a built-in object key.
+- Failures from clearing Activity, toggling body capture, and changing settings
+  are now shown instead of leaving a control that silently snaps back.
+- Settings changed at the same moment from more than one place are written in
+  order, so neither one silently replaces the other or leaves settings
+  unreadable at the next launch.
+- A provider whose stored credential can no longer be decrypted can now be
+  removed instead of failing with "Invalid stored credential".
+- Reconnecting an already-connected provider kind with a different key now
+  clears a default model that key cannot serve.
+- A failed ChatGPT sign-in now clears its code prompt, the provider type cannot
+  be switched mid-sign-in, and submitting a code once the flow has ended
+  reports it rather than appearing to work; starting a second sign-in while one
+  is running is refused instead of orphaning the first.
+- Command-line installation can safely replace a link created by an older Lane
+  app while continuing to protect unrelated commands.
+- `--plain` output keeps one column per field, so rows missing an optional
+  value no longer shift every later column.
+- `lane open` on a cold start now waits for the window instead of reporting
+  success while Lane stays hidden.
+
+### Security
+
+- Released builds can no longer be re-used as a general Node interpreter by
+  another local process, so Lane's code-signing identity and its access to
+  stored credentials cannot be borrowed that way. The signed release also no
+  longer disables macOS library validation; only ad-hoc test bundles retain
+  that entitlement.
+- The test-only credential backend can no longer be selected against a real
+  Lane profile by launching the app with an empty test profile path, so stored
+  provider keys and OAuth tokens stay under the operating system's protection.
+
 ## [0.1.13] - 2026-08-15
 
 ### Changed

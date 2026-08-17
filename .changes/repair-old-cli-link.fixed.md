@@ -1,1 +1,0 @@
-- Command-line installation can safely replace a link created by an older Lane app while continuing to protect unrelated commands.

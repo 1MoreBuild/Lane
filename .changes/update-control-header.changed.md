@@ -1,1 +1,0 @@
-- Move the available-update control into the window toolbar, immediately before Activity, so update progress and downloads stay visible with the primary app controls.

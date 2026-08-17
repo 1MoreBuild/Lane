@@ -1,1 +1,0 @@
-- Recent model requests stay in Activity when Lane logs a burst of unrelated diagnostics, because Activity now has its own retention budget.

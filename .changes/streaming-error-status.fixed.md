@@ -1,1 +1,0 @@
-- A streaming request for a model that does not exist, or to a provider that cannot be reached, now returns the real error status instead of a 200 stream carrying an error event.

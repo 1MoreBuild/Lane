@@ -1,1 +1,0 @@
-- Rejected client keys, denied browser origins, and unknown routes are recorded again, so a refused request still leaves a trace even though it stays out of Activity.

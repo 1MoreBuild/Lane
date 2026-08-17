@@ -1,1 +1,0 @@
-- Each item in a streamed Responses reply now carries its own output index and is properly completed, so clients that assemble parallel tool calls by index no longer collapse them into one.

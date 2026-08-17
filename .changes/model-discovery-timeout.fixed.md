@@ -1,1 +1,0 @@
-- Connecting a provider whose endpoint accepts the connection and then stalls now fails after 30 seconds instead of leaving the dialog waiting forever.
