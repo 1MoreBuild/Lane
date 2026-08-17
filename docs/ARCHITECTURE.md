@@ -98,6 +98,12 @@ available in Transly when Lane is not installed.
   that the Web Store public key, unpacked extension ID, Dashboard item ID, and
   Lane allowlist still agree. Persisted extension origins outside that allowlist
   are removed when Lane loads its configuration.
+- A `claude-code` provider is served by `ClaudeCliRuntime`, which drives the
+  local Claude Code CLI (`--print --output-format stream-json`) one isolated,
+  tool-less completion per request and adapts its stream to Lane's canonical
+  events. `CompositeRuntime` routes models between it and the HTTP-provider
+  runtime by ownership. No credential is stored; connection state reflects
+  whether the CLI executable is present.
 - `LaneLogger` keeps the latest 200 redacted diagnostics and, on a separate
   budget, the latest 200 model-request traces in memory, and mirrors both to
   daily JSONL files in Electron's application log directory. The two budgets are

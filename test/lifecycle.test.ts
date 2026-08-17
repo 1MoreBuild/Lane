@@ -104,6 +104,43 @@ describe("persistence and lifecycle", () => {
     await app.shutdown();
   });
 
+  it("connects Claude Code without a credential and routes its models", async () => {
+    const shared = await stores();
+    const app = new AppCore({
+      ...shared,
+      discover,
+      detectClaudeCode: async () => ({
+        // A real executable path, so the connected check passes.
+        command: process.execPath,
+        version: "2.1.234 (Claude Code)",
+      }),
+    });
+    await app.initialize();
+
+    let state = await app.addProvider({ kind: "claude-code" });
+    const provider = state.providers.find((item) => item.kind === "claude-code");
+    expect(provider).toMatchObject({
+      id: "claude-code",
+      name: "Claude Code",
+      connected: true,
+      authType: "local_cli",
+    });
+    expect(provider?.models).toContain("claude-opus-5");
+    expect(state.models.map((model) => model.id)).toEqual(
+      expect.arrayContaining(["claude-code/claude-opus-5", "claude-code/claude-fable-5"]),
+    );
+    // No secret is written for the CLI-backed provider.
+    expect(await shared.secretStore.get("credential:claude-code")).toBeUndefined();
+
+    state = await app.setDefaultModel("claude-code/claude-opus-5");
+    expect(state.defaultModel).toBe("claude-code/claude-opus-5");
+
+    state = await app.removeProvider("claude-code");
+    expect(state.providers).toHaveLength(0);
+    expect(state.defaultModel).toBeUndefined();
+    await app.shutdown();
+  });
+
   it("removes a provider whose stored credential no longer decrypts", async () => {
     const shared = await stores();
     const app = new AppCore({ ...shared, discover });

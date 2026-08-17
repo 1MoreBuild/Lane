@@ -115,6 +115,8 @@ Gateway:
 Providers:
   providers [list]               List configured providers
   providers add --kind <kind> --api-key-stdin [--id <existing-id>] [--name <name>] [--base-url <url>]
+                                 (claude-code needs no key: it uses the local
+                                 Claude CLI sign-in)
   providers remove --id <id> --force
   providers login                Start ChatGPT / Codex browser OAuth
 
@@ -439,8 +441,26 @@ async function controlRequest(
 ): Promise<Omit<CliControlRequest, "version">> {
   switch (parsed.command) {
     case "providers-add": {
-      if (!parsed.kind || !["openai", "anthropic", "openrouter", "custom-openai"].includes(parsed.kind)) {
-        throw new Error("--kind must be openai, anthropic, openrouter, or custom-openai");
+      const kinds = ["claude-code", "openai", "anthropic", "openrouter", "custom-openai"];
+      if (!parsed.kind || !kinds.includes(parsed.kind)) {
+        throw new Error(
+          "--kind must be claude-code, openai, anthropic, openrouter, or custom-openai",
+        );
+      }
+      if (parsed.kind === "claude-code") {
+        if (parsed.apiKeyStdin) {
+          throw new Error("claude-code uses the local Claude CLI sign-in; omit --api-key-stdin");
+        }
+        return {
+          command: "providers-add",
+          params: {
+            provider: {
+              kind: "claude-code",
+              ...(parsed.id ? { providerId: parsed.id } : {}),
+              ...(parsed.name ? { name: parsed.name } : {}),
+            },
+          },
+        };
       }
       if (!parsed.apiKeyStdin) {
         throw new Error("Provider API keys must be supplied with --api-key-stdin");
