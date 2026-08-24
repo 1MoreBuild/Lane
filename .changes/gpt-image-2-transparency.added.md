@@ -1,1 +1,0 @@
-- Support transparent PNG and WebP output from GPT Image 2 through the OpenAI-compatible image generation API.
