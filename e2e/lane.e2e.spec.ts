@@ -113,7 +113,7 @@ async function createContext(): Promise<LaneTestContext> {
       ? `\\\\.\\pipe\\lane-e2e-${randomBytes(12).toString("hex")}`
       : join(userData, "lane-control.sock");
   const gatewayPort = await freePort();
-  const upstream = await startMockOpenAI();
+  const upstream = await startMockOpenAI({ imageModelId: "gpt-image-2" });
   await writeFile(
     join(userData, "settings.json"),
     `${JSON.stringify(
@@ -545,9 +545,14 @@ test.describe("Lane packaged product journeys", () => {
     expect(modelData).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: expect.stringContaining("mock-model") }),
-        expect.objectContaining({ id: expect.stringContaining("mock-image") }),
+        expect.objectContaining({ id: expect.stringContaining("gpt-image-2") }),
       ]),
     );
+    const gptImage2Model = modelData.find(
+      (model: { id?: unknown }) =>
+        typeof model.id === "string" && model.id.endsWith("/gpt-image-2"),
+    )?.id as string | undefined;
+    expect(gptImage2Model).toBeTruthy();
     await page.getByRole("button", { name: "Open Activity" }).click();
     await expect(
       activity.getByText("No model requests yet", { exact: true }),
@@ -609,10 +614,28 @@ test.describe("Lane packaged product journeys", () => {
     const image = await fetch(`${apiBaseUrl}/images/generations`, {
       method: "POST",
       headers: headers(clientKey),
-      body: JSON.stringify({ prompt: "draw a lane" }),
+      body: JSON.stringify({
+        model: gptImage2Model,
+        prompt: "draw a lane",
+        background: "transparent",
+        output_format: "png",
+      }),
     });
     expect(image.status).toBe(200);
     expect((await image.json() as any).data[0].b64_json).toBeTruthy();
+
+    expect(
+      context.upstream.requests.find(
+        (request) => request.path === "/v1/images/generations",
+      ),
+    ).toMatchObject({
+      body: {
+        model: "gpt-image-2",
+        prompt: "draw a lane",
+        background: "transparent",
+        output_format: "png",
+      },
+    });
 
     expect(
       context.upstream.requests.every(
@@ -984,7 +1007,7 @@ test.describe("Lane packaged product journeys", () => {
     expect(modelData).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: statusData.default_model }),
-        expect.objectContaining({ id: expect.stringMatching(/\/mock-image$/) }),
+        expect.objectContaining({ id: expect.stringMatching(/\/gpt-image-2$/) }),
       ]),
     );
 
@@ -1029,7 +1052,7 @@ test.describe("Lane packaged product journeys", () => {
         apiKey: clientKey,
         models: expect.arrayContaining([
           expect.stringMatching(/\/mock-model$/),
-          expect.stringMatching(/\/mock-image$/),
+          expect.stringMatching(/\/gpt-image-2$/),
         ]),
         defaultModel: expect.stringMatching(/\/mock-model$/),
         protocol: "responses",

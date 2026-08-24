@@ -8,7 +8,10 @@ export interface MockOpenAI {
   close(): Promise<void>;
 }
 
-export async function startMockOpenAI(): Promise<MockOpenAI> {
+export async function startMockOpenAI(
+  options: { imageModelId?: string } = {},
+): Promise<MockOpenAI> {
+  const imageModelId = options.imageModelId ?? "mock-image";
   const port = await freePort();
   const requests: MockOpenAI["requests"] = [];
   const state = { abortedRequests: 0 };
@@ -28,7 +31,7 @@ export async function startMockOpenAI(): Promise<MockOpenAI> {
         JSON.stringify({
           data: [
             { id: "mock-model", name: "Mock Model" },
-            { id: "mock-image", name: "Mock Image" },
+            { id: imageModelId, name: "Mock Image" },
           ],
         }),
       );

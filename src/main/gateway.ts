@@ -215,6 +215,13 @@ function parseImageRequest(value: unknown): CanonicalImageRequest {
   ) {
     throw new RuntimeError("output_format is not supported", 400, "invalid_request_error");
   }
+  if (input.background === "transparent" && input.output_format === "jpeg") {
+    throw new RuntimeError(
+      "transparent backgrounds require png or webp output",
+      400,
+      "unsupported_parameter",
+    );
+  }
   if (
     input.output_compression !== undefined &&
     (!Number.isInteger(input.output_compression) ||

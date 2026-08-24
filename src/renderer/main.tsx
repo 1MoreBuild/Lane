@@ -632,11 +632,6 @@ function App(): ReactNode {
   const selectedImageModel = state.imageModels.find(
     (model) => model.id === state.defaultImageModel,
   );
-  const selectedImageProvider = state.providers.find(
-    (provider) => provider.id === selectedImageModel?.provider,
-  );
-  const selectedImageIsGptImage2 =
-    selectedImageModel?.id.split("/").at(-1)?.startsWith("gpt-image-2") === true;
   const modelGroups = [...new Set(state.models.map((model) => model.provider))].map(
     (providerId) => ({
       id: providerId,
@@ -1690,11 +1685,8 @@ function App(): ReactNode {
                         </span>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {selectedImageIsGptImage2
-                          ? selectedImageProvider?.kind === "openai-codex"
-                            ? "Default for image generation. GPT Image 2 is opaque; Codex sizes are best effort."
-                            : "Default for image generation. GPT Image 2 does not support transparent backgrounds."
-                          : "Used when an image request doesn't specify a model."}
+                        Used when an image request doesn't specify a model. For
+                        supported models, transparent output requires PNG or WebP.
                       </TooltipContent>
                     </Tooltip>
                   </div>

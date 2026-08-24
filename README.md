@@ -86,6 +86,9 @@ Lane supports `/v1/responses`, `/v1/chat/completions`, and
 accept base64 data URL image inputs. Tool calls are returned to the client;
 Lane never executes them.
 
+GPT Image 2 requests can use `background: "transparent"` with PNG or WebP
+output. JPEG does not support transparency.
+
 Lane defaults reasoning effort to High and speed to Standard. Requests can
 override those defaults with `reasoning.effort` / `reasoning_effort` and
 `service_tier`.
