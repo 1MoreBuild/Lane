@@ -14,7 +14,6 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import {
   buildImageModels,
   createOpenAiImagesProvider,
-  PiAiImageRuntime,
 } from "../src/main/image-runtime.ts";
 
 const unusedStreams: ProviderStreams = {
@@ -284,6 +283,8 @@ describe("provider connections", () => {
         model: "gpt-image-2",
         prompt: "draw a clean road",
         quality: "low",
+        background: "transparent",
+        output_format: "png",
       });
       return new Response(
         JSON.stringify({
@@ -319,7 +320,13 @@ describe("provider connections", () => {
       { input: [{ type: "text", text: "draw a clean road" }] },
       {
         apiKey: access,
-        metadata: { laneImageOptions: { quality: "low" } },
+        metadata: {
+          laneImageOptions: {
+            quality: "low",
+            background: "transparent",
+            outputFormat: "png",
+          },
+        },
       },
     );
     expect(result.stopReason).toBe("stop");
@@ -328,37 +335,6 @@ describe("provider connections", () => {
       { type: "text", text: "clean road" },
     ]);
     expect(fetcher).toHaveBeenCalledOnce();
-  });
-
-  it("rejects transparent backgrounds for gpt-image-2 before an upstream request", async () => {
-    const credentials = new InMemoryCredentialStore();
-    const configs = [
-      {
-        id: "openai-codex",
-        kind: "openai-codex" as const,
-        name: "ChatGPT / Codex",
-        models: [],
-        createdAt: 1,
-      },
-    ];
-    const runtime = new PiAiImageRuntime(
-      buildImageModels(configs, credentials),
-      configs,
-      "openai-codex/gpt-image-2",
-    );
-
-    await expect(
-      runtime.generate(
-        {
-          prompt: "draw a clean road",
-          background: "transparent",
-        },
-        new AbortController().signal,
-      ),
-    ).rejects.toMatchObject({
-      status: 400,
-      code: "unsupported_parameter",
-    });
   });
 
   it("keeps native transparency available for gpt-image-1.5", async () => {

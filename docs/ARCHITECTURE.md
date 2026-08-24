@@ -142,7 +142,8 @@ available in Transly when Lane is not installed.
   pi-ai applies the effective value only to reasoning-capable models.
 - Image generation has its own canonical one-shot request/result model. It uses
   pi-ai's `ImagesModels` collection and does not enter the chat streaming or
-  tool-call path.
+  tool-call path. Lane forwards OpenAI image output options, including GPT Image
+  2 transparent backgrounds, through the shared image runtime.
 
 ## Provider connection model
 

@@ -449,6 +449,7 @@ describe("gateway with a local pi-ai mock provider", () => {
         n: 2,
         quality: "low",
         size: "1024x1024",
+        background: "transparent",
         output_format: "webp",
       }),
     });
@@ -475,9 +476,34 @@ describe("gateway with a local pi-ai mock provider", () => {
         n: 2,
         quality: "low",
         size: "1024x1024",
+        background: "transparent",
         output_format: "webp",
       },
     });
+  });
+
+  it("rejects jpeg output for transparent image requests", async () => {
+    const { url, upstream } = await setup();
+    const response = await fetch(`${url}/v1/images/generations`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        prompt: "draw a transparent lane",
+        background: "transparent",
+        output_format: "jpeg",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "unsupported_parameter",
+        message: "transparent backgrounds require png or webp output",
+      },
+    });
+    expect(
+      upstream.requests.some((request) => request.path === "/v1/images/generations"),
+    ).toBe(false);
   });
 
   it("forwards image inputs and applies configurable default effort", async () => {

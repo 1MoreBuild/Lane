@@ -26,7 +26,6 @@ import { mapProviderError } from "./pi-runtime.ts";
 const OPENAI_IMAGE_BASE_URL = "https://api.openai.com/v1";
 const CODEX_IMAGE_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const MAX_IMAGE_RESPONSE_BYTES = 128 * 1024 * 1024;
-const GPT_IMAGE_2_PATTERN = /^gpt-image-2(?:-|$)/;
 
 // Image endpoints answer chunked, so Content-Length cannot bound the download.
 // Reading incrementally stops a hostile base URL from exhausting main-process
@@ -391,16 +390,6 @@ export class PiAiImageRuntime {
     signal: AbortSignal,
   ): Promise<CanonicalImageResult> {
     const model = this.resolveModel(request.model);
-    if (
-      request.background === "transparent" &&
-      GPT_IMAGE_2_PATTERN.test(model.id)
-    ) {
-      throw new RuntimeError(
-        "gpt-image-2 does not support transparent backgrounds; use auto, opaque, or a transparency-capable image model",
-        400,
-        "unsupported_parameter",
-      );
-    }
     const result = await this.models.generateImages(
       model,
       { input: [{ type: "text", text: request.prompt }] },
