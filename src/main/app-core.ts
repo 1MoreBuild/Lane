@@ -25,6 +25,14 @@ import {
   discoverModels,
   type DiscoveryInput,
 } from "./model-discovery.ts";
+import {
+  CLAUDE_CODE_MODELS,
+  ClaudeCliRuntime,
+  detectClaudeCli,
+  findClaudeCli,
+  type ClaudeCliDetection,
+} from "./claude-cli.ts";
+import { CompositeRuntime } from "./composite-runtime.ts";
 import { OAuthCoordinator } from "./oauth-coordinator.ts";
 import { buildModels, PiAiRuntime } from "./pi-runtime.ts";
 import { buildImageModels, PiAiImageRuntime } from "./image-runtime.ts";
@@ -37,6 +45,7 @@ const PORT_RETRY_DELAYS_MS = [0, 100, 250, 500] as const;
 export const DEFAULT_CODEX_MODEL = "openai-codex/gpt-5.6-luna";
 
 const DEFAULT_NAMES: Record<Exclude<ProviderKind, "openai-codex">, string> = {
+  "claude-code": "Claude Code",
   openai: "OpenAI",
   anthropic: "Anthropic",
   openrouter: "OpenRouter",
@@ -63,6 +72,7 @@ export interface AppCoreOptions {
     fetcher?: typeof fetch,
     signal?: AbortSignal,
   ) => ReturnType<typeof discoverModels>;
+  detectClaudeCode?: (command?: string) => Promise<ClaudeCliDetection>;
   setLaunchAtLogin?: (enabled: boolean) => void;
   setDockIconVisible?: (enabled: boolean) => void | Promise<void>;
   setMenuBarIconVisible?: (enabled: boolean) => void | Promise<void>;
@@ -74,6 +84,7 @@ export class AppCore {
   private readonly credentials: SecureCredentialStore;
   private readonly logger: LaneLogger;
   private readonly discover: NonNullable<AppCoreOptions["discover"]>;
+  private readonly detectClaudeCode: NonNullable<AppCoreOptions["detectClaudeCode"]>;
   private readonly setLoginItem: (enabled: boolean) => void;
   private readonly setDockIcon: (enabled: boolean) => void | Promise<void>;
   private readonly setMenuBarIcon: (enabled: boolean) => void | Promise<void>;
@@ -92,6 +103,7 @@ export class AppCore {
     this.logger = options.logger ?? new LaneLogger();
     this.gateway = new GatewayServer(this.runtime, this.logger);
     this.discover = options.discover ?? discoverModels;
+    this.detectClaudeCode = options.detectClaudeCode ?? detectClaudeCli;
     this.setLoginItem = options.setLaunchAtLogin ?? (() => {});
     this.setDockIcon = options.setDockIconVisible ?? (() => {});
     this.setMenuBarIcon = options.setMenuBarIconVisible ?? (() => {});
@@ -159,15 +171,24 @@ export class AppCore {
       this.config.providers,
       this.effectiveDefaultImageModel,
     );
+    const httpProviders = this.config.providers.filter(
+      (provider) => provider.kind !== "claude-code",
+    );
+    const piRuntime = new PiAiRuntime(
+      models,
+      httpProviders,
+      this.effectiveDefaultModel,
+      effectiveImages,
+      this.config.reasoningEffort,
+      this.config.speedMode,
+    );
+    const cliRuntimes = this.config.providers
+      .filter((provider) => provider.kind === "claude-code")
+      .map((provider) => new ClaudeCliRuntime(provider, this.config?.reasoningEffort));
     this.runtime.set(
-      new PiAiRuntime(
-        models,
-        this.config.providers,
-        this.effectiveDefaultModel,
-        effectiveImages,
-        this.config.reasoningEffort,
-        this.config.speedMode,
-      ),
+      cliRuntimes.length > 0
+        ? new CompositeRuntime(piRuntime, cliRuntimes, this.effectiveDefaultModel)
+        : piRuntime,
     );
   }
 
@@ -202,7 +223,11 @@ export class AppCore {
 
   async addProvider(input: AddProviderInput): Promise<LaneState> {
     const { config } = this.requireInitialized();
-    if (!["openai", "anthropic", "openrouter", "custom-openai"].includes(input.kind)) {
+    if (
+      !["claude-code", "openai", "anthropic", "openrouter", "custom-openai"].includes(
+        input.kind,
+      )
+    ) {
       throw new Error("Unsupported provider type");
     }
     const existing = input.providerId
@@ -211,6 +236,11 @@ export class AppCore {
     if (input.providerId && (!existing || existing.kind !== input.kind)) {
       throw new Error("Provider to reconnect was not found");
     }
+    if (input.kind === "claude-code") {
+      return await this.addClaudeCodeProvider(config, input, existing);
+    }
+    const apiKey = input.apiKey;
+    if (!apiKey?.trim()) throw new Error("API key is required");
     const baseUrl =
       input.kind === "custom-openai"
         ? assertSafeUpstreamUrl(input.baseUrl ?? existing?.baseUrl ?? "")
@@ -219,7 +249,7 @@ export class AppCore {
         : undefined;
     const discovered = await this.discover({
       kind: input.kind,
-      apiKey: input.apiKey,
+      apiKey,
       ...(baseUrl ? { baseUrl } : {}),
     });
     const id = existing?.id ?? this.providerId(input);
@@ -234,7 +264,7 @@ export class AppCore {
         throw error;
       }
     }
-    await this.credentials.replace(id, { type: "api_key", key: input.apiKey });
+    await this.credentials.replace(id, { type: "api_key", key: apiKey });
     const provider: ProviderConfig = {
       id,
       kind: input.kind,
@@ -323,6 +353,32 @@ export class AppCore {
       throw error;
     }
     this.logger.info("Connected ChatGPT / Codex with OAuth");
+    return await this.getState();
+  }
+
+  private async addClaudeCodeProvider(
+    config: LaneConfig,
+    input: AddProviderInput,
+    existing: ProviderConfig | undefined,
+  ): Promise<LaneState> {
+    // No credential is stored: the CLI authenticates with the user's own
+    // Claude Code login. Connection just requires a working executable.
+    const detection = await this.detectClaudeCode(input.command ?? existing?.command);
+    const provider: ProviderConfig = {
+      id: existing?.id ?? "claude-code",
+      kind: "claude-code",
+      name: input.name?.trim() || existing?.name || DEFAULT_NAMES["claude-code"],
+      command: detection.command,
+      models: CLAUDE_CODE_MODELS.map((model) => model.id),
+      createdAt: existing?.createdAt ?? Date.now(),
+    };
+    await this.persist({
+      ...config,
+      providers: [...config.providers.filter((item) => item.id !== provider.id), provider],
+    });
+    this.logger.info(
+      `Connected Claude Code (${detection.version}); ${provider.models.length} models loaded`,
+    );
     return await this.getState();
   }
 
@@ -565,6 +621,20 @@ export class AppCore {
     }
     return await Promise.all(
       config.providers.map(async (provider) => {
+        if (provider.kind === "claude-code") {
+          // No stored credential: connection means the CLI is still runnable.
+          const command = await findClaudeCli(provider.command);
+          return {
+            id: provider.id,
+            kind: provider.kind,
+            name: provider.name,
+            connected: command !== undefined,
+            ...(command === undefined
+              ? { needsReconnection: true, error: "Claude Code CLI was not found" }
+              : { authType: "local_cli" as const }),
+            models: [...provider.models],
+          };
+        }
         try {
           const credential = await this.credentials.read(provider.id);
           return {

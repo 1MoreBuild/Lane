@@ -75,6 +75,19 @@ provider, browser-integration, model-discovery, and updater diagnostics are not
 exposed through the CLI. The command schema identifies secrets and mutations so
 agents do not need to infer them.
 
+### Claude Code provider
+
+A claude-code provider stores no credential at all: Lane spawns the user's own
+Claude Code CLI per request, and authentication is whatever that CLI is already
+signed in to. Lane never reads the CLI's stored tokens or its Keychain entry.
+Each spawn is isolated — sessions, tools, MCP servers, hooks, plugins, and
+setting sources are all disabled — so a gateway request cannot execute local
+tools or read workspace context through the CLI, and provider-routing
+environment variables (`ANTHROPIC_*`, `CLAUDE_CODE_*`, `CLAUDE_CONFIG_DIR`) are
+cleared so an inherited shell environment cannot steer requests to a different
+backend or account. The executable path is chosen from fixed per-user
+locations or an explicit configured path, never from an inherited `PATH`.
+
 ### Browser integration
 
 The packaged app registers a Chrome Native Messaging manifest containing an

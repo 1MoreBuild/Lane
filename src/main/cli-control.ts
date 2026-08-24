@@ -109,11 +109,13 @@ function parseRequest(value: unknown): CliControlRequest {
       : undefined;
   if (request.command === "providers-add") {
     const provider = params?.provider;
+    const kinds = ["claude-code", "openai", "anthropic", "openrouter", "custom-openai"];
+    if (!provider || !kinds.includes(provider.kind)) {
+      throw new Error("Invalid provider input");
+    }
     if (
-      !provider ||
-      !["openai", "anthropic", "openrouter", "custom-openai"].includes(provider.kind) ||
-      typeof provider.apiKey !== "string" ||
-      !provider.apiKey.trim()
+      provider.kind !== "claude-code" &&
+      (typeof provider.apiKey !== "string" || !provider.apiKey.trim())
     ) {
       throw new Error("Invalid provider input");
     }
